@@ -39,6 +39,11 @@ yarn-error.log*
 # Claude Code local settings
 .claude/
 
+# Vercel CLI workaround (Korean Windows hostname / Node 24 header validation)
+.vercel-shim.cjs
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel
