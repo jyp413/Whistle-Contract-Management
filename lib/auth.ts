@@ -21,9 +21,9 @@ export async function getCurrentUser(): Promise<AppUser | null> {
 
 export async function requireUser(): Promise<AppUser> {
   const u = await getCurrentUser();
-  if (!u || !u.is_active || u.deleted_at) {
-    redirect('/login');
-  }
+  if (!u) redirect('/login');
+  if (u.deleted_at) redirect('/login');
+  if (!u.is_active) redirect('/pending');
   return u;
 }
 

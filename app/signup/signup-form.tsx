@@ -30,10 +30,10 @@ export default function SignupForm() {
       return;
     }
     if (!data.session) {
-      setInfo('가입이 완료되었습니다. 이메일 인증이 필요한 경우 메일함을 확인하세요.');
+      setInfo('가입이 완료되었습니다. 로그인 페이지로 이동해 로그인하세요.');
       return;
     }
-    router.push('/dashboard');
+    router.push('/pending');
     router.refresh();
   }
 
