@@ -9,8 +9,9 @@ export default async function NewContractPage() {
   const supabase = await createClient();
   const { data: lgs } = await supabase
     .from('local_governments')
-    .select('id, full_name, classification')
+    .select('id, full_name, sido, sigungu, classification')
     .is('deleted_at', null)
+    .order('sido')
     .order('full_name');
 
   return (
