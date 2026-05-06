@@ -1,0 +1,36 @@
+import { createClient } from '@/lib/supabase/server';
+import { requireMaster } from '@/lib/auth';
+import UsersTable from './users-table';
+
+export const dynamic = 'force-dynamic';
+
+export default async function UsersPage() {
+  const me = await requireMaster();
+  const supabase = await createClient();
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('id, email, display_name, role, is_active, created_at, deleted_at')
+    .order('created_at', { ascending: false });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-xl font-bold text-slate-900">사용자 관리</h1>
+        <p className="text-sm text-slate-500 mt-1">
+          Master 권한 전용. 역할 변경 / 활성화 / 비활성화 가능.
+        </p>
+      </div>
+
+      {error && (
+        <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">
+          조회 오류: {error.message}
+        </p>
+      )}
+
+      <UsersTable
+        users={users ?? []}
+        meId={me.id}
+      />
+    </div>
+  );
+}

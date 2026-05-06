@@ -49,6 +49,14 @@ export default async function AppLayout({
                   활동 로그
                 </Link>
               )}
+              {user.role === 'master' && (
+                <Link
+                  href="/users"
+                  className="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100"
+                >
+                  사용자
+                </Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-xs">

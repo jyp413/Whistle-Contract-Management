@@ -66,11 +66,21 @@ npm run dev
 - [x] 갱신 착수 (renew_start) — 신규 계약 행 + parent_contract_id 자기참조
 - [x] 종료 처리 UI — 사유 필수 모달
 
-### Phase 3 — 부가 기능 (예정)
-- [ ] ZIP 일괄 다운로드 (Edge Function)
-- [ ] 엑셀 내보내기
-- [ ] 사용자 관리 (Master)
-- [ ] 만료 자동 종료 cron 등록
+### Phase 3 — 부가 기능 (완료)
+- [x] **사용자 관리** (`/users`, Master 전용) — 역할 변경 / 활성 토글, 본인 권한 자해 방지
+- [x] **엑셀 내보내기** (`GET /api/export/contracts.xlsx`) — 현재 필터 그대로 반영, ExcelJS
+- [x] **ZIP 일괄 다운로드** (`GET /api/export/contracts.zip`) — 옵션 A(최신만) / B(전체버전) / C(상태별), JSZip + Storage download
+- [x] **만료 자동종료 Cron** (`GET /api/cron/terminate-expired`) — Vercel Cron 매일 KST 01:00 (UTC 16:00) 실행, `CRON_SECRET` 헤더 인증
+- [ ] 만료 60/30/7일 이메일 알림 (Nice-to-Have)
+
+## 운영 환경 변수
+
+| 변수 | 용도 |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase 프로젝트 URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | publishable key |
+| `SUPABASE_SERVICE_ROLE_KEY` | (선택) cron이 시스템 권한으로 실행할 때 |
+| `CRON_SECRET` | Vercel Cron 라우트 인증 토큰 |
 
 ## 핵심 설계 포인트
 

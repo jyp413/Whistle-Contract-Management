@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
+import ZipMenu from './zip-menu';
 import {
   STATUS_LABEL,
   STATUS_BADGE,
@@ -59,16 +60,27 @@ export default async function ContractsListPage({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-slate-900">계약 목록</h1>
-        {canWrite(me.role) && (
-          <Link
-            href="/contracts/new"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded"
-          >
-            + 신규 계약 등록
-          </Link>
-        )}
+        <div className="flex items-center gap-2">
+          {canWrite(me.role) && (
+            <>
+              <a
+                href={`/api/export/contracts.xlsx?${new URLSearchParams({ status, ...(q ? { q } : {}) }).toString()}`}
+                className="text-sm font-medium px-3 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+              >
+                엑셀 내보내기
+              </a>
+              <ZipMenu status={status} />
+              <Link
+                href="/contracts/new"
+                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded"
+              >
+                + 신규 계약 등록
+              </Link>
+            </>
+          )}
+        </div>
       </div>
 
       <form className="bg-white rounded-lg border border-slate-200 p-4 flex flex-wrap gap-3 items-end">
