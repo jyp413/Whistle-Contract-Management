@@ -51,7 +51,7 @@ This is a **계약 건 (contract) 단위 상태 관리 시스템**. Key invarian
 
 ### RLS model
 
-Every public table has RLS. Policies reference `public.current_user_role()` which is SECURITY DEFINER but has `EXECUTE` revoked from anon/authenticated to prevent REST `/rpc/` exposure — RLS evaluation still works because the trigger runs as the function owner.
+Every public table has RLS. Policies reference `public.current_user_role()` which is SECURITY DEFINER. **`authenticated` MUST keep `EXECUTE` on this function** — Postgres checks EXECUTE permission on the caller role *before* running the SECURITY DEFINER body, so revoking it breaks every RLS evaluation (manifests as `permission denied for function current_user_role` or empty result sets). The function only returns the user's own role, so its REST `/rpc/current_user_role` exposure is acceptable. Trigger-only functions (`handle_new_auth_user`, etc.) DO have EXECUTE revoked from anon/authenticated since they never need direct call.
 
 Effective access:
 - `master` — full
