@@ -11,6 +11,7 @@ import {
   effectiveExpiry,
 } from '@/lib/utils';
 import UploadCard from './upload-card';
+import ContractActions from './contract-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -79,7 +80,7 @@ export default async function ContractDetailPage({
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <p className="text-xs text-slate-500">
             <Link href="/contracts" className="hover:underline">
@@ -88,15 +89,45 @@ export default async function ContractDetailPage({
             {' '}/{' '}
             <span className="text-slate-700">계약 상세</span>
           </p>
-          <h1 className="text-xl font-bold text-slate-900 mt-1">
-            {contract.local_governments?.full_name}
-          </h1>
+          <div className="flex items-center gap-3 mt-1">
+            <h1 className="text-xl font-bold text-slate-900">
+              {contract.local_governments?.full_name}
+            </h1>
+            <span
+              className={`inline-flex items-center text-sm font-medium px-3 py-1 rounded ring-1 ring-inset ${STATUS_BADGE[contract.status]}`}
+            >
+              {STATUS_LABEL[contract.status]}
+            </span>
+          </div>
+          {contract.parent_contract_id && (
+            <p className="text-xs text-slate-500 mt-1">
+              ↻ 갱신 계약 (부모:{' '}
+              <Link
+                href={`/contracts/${contract.parent_contract_id}`}
+                className="text-indigo-600 hover:underline font-mono"
+              >
+                {contract.parent_contract_id.slice(0, 8)}…
+              </Link>
+              )
+            </p>
+          )}
         </div>
-        <span
-          className={`inline-flex items-center text-sm font-medium px-3 py-1 rounded ring-1 ring-inset ${STATUS_BADGE[contract.status]}`}
-        >
-          {STATUS_LABEL[contract.status]}
-        </span>
+        <ContractActions
+          contractId={contract.id}
+          status={contract.status}
+          version={contract.version}
+          effectiveExpiry={effectiveExpiry(contract)}
+          history={(history ?? []).map((h) => ({
+            id: h.id,
+            from_status: h.from_status,
+            to_status: h.to_status,
+            transition_type: h.transition_type,
+            is_correction: h.is_correction,
+            changed_at: h.changed_at,
+          }))}
+          userRole={me.role}
+          parentContractId={contract.parent_contract_id}
+        />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">

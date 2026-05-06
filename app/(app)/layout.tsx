@@ -35,6 +35,20 @@ export default async function AppLayout({
               >
                 계약
               </Link>
+              <Link
+                href="/expiring"
+                className="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100"
+              >
+                만료 임박
+              </Link>
+              {user.role !== 'viewer' && (
+                <Link
+                  href="/activity"
+                  className="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100"
+                >
+                  활동 로그
+                </Link>
+              )}
             </nav>
           </div>
           <div className="flex items-center gap-3 text-xs">

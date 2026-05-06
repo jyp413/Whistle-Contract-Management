@@ -57,14 +57,14 @@ npm run dev
 - [x] 권한별 버튼 노출 제어 (Master/Accounting/Viewer)
 - [x] 낙관적 락 충돌 감지
 
-### Phase 2 — 운영 기능 (예정)
-- [ ] 계약기간 연장 (Extend)
-- [ ] 상태 보정 (Correction)
-- [ ] KPI Drill-down 모달
-- [ ] 활동 로그 뷰
-- [ ] 만료 임박 보드 + 60/30/7일 알림
-- [ ] 갱신 착수 (renew_start)
-- [ ] 종료 처리 UI
+### Phase 2 — 운영 기능 (완료)
+- [x] 계약기간 연장 (Extend) — 모달 + 다회 연장 이력 + 낙관락
+- [x] 상태 보정 (Correction) — RPC + GUC 기반 트리거 우회 + 권한 차등 (Master 전체 / Accounting 직전)
+- [x] KPI Drill-down — 카드 클릭 → 필터 적용된 계약 목록
+- [x] 활동 로그 뷰 — `/activity` (Master 전체 / Accounting 본인, RLS 적용)
+- [x] 만료 임박 보드 — `/expiring` 7/30/60일 버킷 카운트
+- [x] 갱신 착수 (renew_start) — 신규 계약 행 + parent_contract_id 자기참조
+- [x] 종료 처리 UI — 사유 필수 모달
 
 ### Phase 3 — 부가 기능 (예정)
 - [ ] ZIP 일괄 다운로드 (Edge Function)

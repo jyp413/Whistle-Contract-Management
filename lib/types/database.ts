@@ -435,6 +435,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      apply_correction: {
+        Args: {
+          p_contract_id: string
+          p_expected_version: number
+          p_reason: string
+          p_target_history_id: string
+        }
+        Returns: Json
+      }
       current_user_role: {
         Args: Record<string, never>
         Returns: Database["public"]["Enums"]["user_role"]
