@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>주차단속 계약관리 시스템 — ERD 다이어그램</title>
+<style>
+  body { margin: 0; padding: 24px; background: #f5f6f8; font-family: 'Malgun Gothic','맑은 고딕',Arial,sans-serif; }
+  .wrap { max-width: 1500px; margin: 0 auto; }
+  h1 { color: #1F3864; margin: 0 0 4px 0; font-size: 24px; }
+  .sub { color: #595959; margin: 0 0 20px 0; font-size: 14px; }
+  .legend { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 14px; height: 14px; display: inline-block; border: 1px solid #999; border-radius: 2px; }
+  .card { background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); padding: 20px; }
+  svg { display: block; width: 100%; height: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>주차단속 계약관리 시스템 — ERD 다이어그램</h1>
+  <p class="sub">PRD v3.0 기반 / 9개 운영 테이블 + 6종 ENUM</p>
+
+  <div class="legend">
+    <span><i style="background:#FFF2CC"></i>PK (Primary Key)</span>
+    <span><i style="background:#E2EFDA"></i>FK (Foreign Key)</span>
+    <span><i style="background:#FCE4D6"></i>UQ (Unique)</span>
+    <span><i style="background:#DEEBF7"></i>일반 컬럼</span>
+    <span><i style="background:#F2F2F2"></i>감사추적 컬럼</span>
+    <span style="margin-left:auto;color:#666">▶ 1:N 관계 / ↻ 자기참조</span>
+  </div>
+
+  <div class="card">
+<svg viewBox="0 0 1480 1180" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1F3864"/>
+    </marker>
+    <marker id="arrowSelf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#C00000"/>
+    </marker>
+    <style>
+      .tbl-title { font: bold 13px 'Malgun Gothic',sans-serif; fill: white; }
+      .tbl-desc { font: italic 10px 'Malgun Gothic',sans-serif; fill: #d9e2f3; }
+      .col { font: 11px Consolas,monospace; fill: #222; }
+      .col-key { font: bold 11px Consolas,monospace; fill: #222; }
+      .rel-label { font: 11px 'Malgun Gothic',sans-serif; fill: #1F3864; }
+      .rel-card { font: bold 12px 'Malgun Gothic',sans-serif; fill: #1F3864; }
+    </style>
+  </defs>
+
+  <!-- ============================================ -->
+  <!-- USERS (좌상) -->
+  <!-- ============================================ -->
+  <g transform="translate(40,40)">
+    <rect width="240" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">👤 users</text>
+    <text x="14" y="34" class="tbl-desc">시스템 사용자</text>
+    <rect y="42" width="240" height="200" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="240" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="240" height="20" fill="#FCE4D6"/>
+    <text x="10" y="76" class="col-key">UQ email</text>
+
+    <text x="10" y="96" class="col">display_name</text>
+    <text x="10" y="116" class="col">role : user_role</text>
+    <text x="10" y="136" class="col">is_active</text>
+
+    <rect y="142" width="240" height="100" fill="#F2F2F2"/>
+    <text x="10" y="160" class="col">created_at</text>
+    <text x="10" y="178" class="col">updated_at</text>
+    <text x="10" y="196" class="col">deleted_at</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- LOCAL_GOVERNMENTS (좌중) -->
+  <!-- ============================================ -->
+  <g transform="translate(40,310)">
+    <rect width="240" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">🏛 local_governments</text>
+    <text x="14" y="34" class="tbl-desc">지자체 ('구' 우선)</text>
+    <rect y="42" width="240" height="220" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="240" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <text x="10" y="78" class="col">sido</text>
+    <text x="10" y="98" class="col">sigungu</text>
+
+    <rect y="104" width="240" height="20" fill="#FCE4D6"/>
+    <text x="10" y="118" class="col-key">UQ full_name</text>
+
+    <text x="10" y="138" class="col">classification : lg_class</text>
+    <text x="10" y="158" class="col">memo</text>
+
+    <rect y="162" width="240" height="100" fill="#F2F2F2"/>
+    <text x="10" y="180" class="col">created_at</text>
+    <text x="10" y="198" class="col">updated_at</text>
+    <text x="10" y="216" class="col">deleted_at</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- CONTRACTS (중앙) -->
+  <!-- ============================================ -->
+  <g transform="translate(420,260)">
+    <rect width="280" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">📄 contracts</text>
+    <text x="14" y="34" class="tbl-desc">계약 건 — 상태 관리 단위</text>
+    <rect y="42" width="280" height="380" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="280" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="76" class="col-key">FK local_government_id</text>
+
+    <rect y="82" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="96" class="col-key">FK parent_contract_id (↻ 갱신)</text>
+
+    <text x="10" y="116" class="col">status : contract_status</text>
+    <text x="10" y="134" class="col">signed_date</text>
+    <text x="10" y="152" class="col">effective_date</text>
+    <text x="10" y="170" class="col">expiry_date</text>
+    <text x="10" y="188" class="col">extended_expiry_date</text>
+    <text x="10" y="206" class="col">termination_reason</text>
+    <text x="10" y="224" class="col">memo</text>
+
+    <rect y="232" width="280" height="20" fill="#FFE699"/>
+    <text x="10" y="246" class="col-key">⚙ version (낙관적 락)</text>
+
+    <rect y="252" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="266" class="col-key">FK created_by → users</text>
+
+    <rect y="272" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="286" class="col-key">FK updated_by → users</text>
+
+    <rect y="292" width="280" height="128" fill="#F2F2F2"/>
+    <text x="10" y="310" class="col">created_at</text>
+    <text x="10" y="328" class="col">updated_at</text>
+    <text x="10" y="346" class="col">deleted_at</text>
+  </g>
+
+  <!-- 자기참조 화살표 (parent_contract_id) -->
+  <path d="M 700 295 Q 760 280 760 340 Q 760 400 700 385" stroke="#C00000" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowSelf)"/>
+  <text x="765" y="345" class="rel-label" fill="#C00000">↻ 갱신</text>
+
+  <!-- ============================================ -->
+  <!-- CONTRACT_FILES (우상) -->
+  <!-- ============================================ -->
+  <g transform="translate(870,40)">
+    <rect width="260" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">📎 contract_files</text>
+    <text x="14" y="34" class="tbl-desc">계약 PDF — 다버전</text>
+    <rect y="42" width="260" height="320" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="260" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="260" height="20" fill="#E2EFDA"/>
+    <text x="10" y="76" class="col-key">FK contract_id</text>
+
+    <text x="10" y="96" class="col">storage_path</text>
+    <text x="10" y="114" class="col">original_filename</text>
+    <text x="10" y="132" class="col">file_size_bytes (≤50MB)</text>
+    <text x="10" y="150" class="col">mime_type = 'application/pdf'</text>
+    <text x="10" y="168" class="col">checksum_sha256</text>
+    <text x="10" y="186" class="col">version_no</text>
+    <text x="10" y="204" class="col">is_latest</text>
+
+    <rect y="212" width="260" height="20" fill="#E2EFDA"/>
+    <text x="10" y="226" class="col-key">FK uploaded_by → users</text>
+
+    <rect y="232" width="260" height="130" fill="#F2F2F2"/>
+    <text x="10" y="250" class="col">uploaded_at</text>
+    <text x="10" y="268" class="col">deleted_at</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- CONTRACT_STATUS_HISTORY (우중) -->
+  <!-- ============================================ -->
+  <g transform="translate(870,420)">
+    <rect width="280" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">📜 contract_status_history</text>
+    <text x="14" y="34" class="tbl-desc">상태 변경 이력 (불변)</text>
+    <rect y="42" width="280" height="280" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="280" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="76" class="col-key">FK contract_id</text>
+
+    <text x="10" y="96" class="col">from_status / to_status</text>
+    <text x="10" y="114" class="col">transition_type</text>
+    <text x="10" y="132" class="col">trigger_event</text>
+    <text x="10" y="150" class="col">reason</text>
+    <text x="10" y="168" class="col">is_correction (보정여부)</text>
+
+    <rect y="174" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="188" class="col-key">FK corrected_history_id (↻)</text>
+
+    <rect y="194" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="208" class="col-key">FK changed_by → users</text>
+
+    <rect y="214" width="280" height="108" fill="#F2F2F2"/>
+    <text x="10" y="232" class="col">changed_at (불변)</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- CONTRACT_EXTENSIONS (우하) -->
+  <!-- ============================================ -->
+  <g transform="translate(870,720)">
+    <rect width="280" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">⏩ contract_extensions</text>
+    <text x="14" y="34" class="tbl-desc">계약기간 연장 이력</text>
+    <rect y="42" width="280" height="200" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="280" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="76" class="col-key">FK contract_id</text>
+
+    <text x="10" y="96" class="col">previous_expiry_date</text>
+    <text x="10" y="114" class="col">new_expiry_date</text>
+    <text x="10" y="132" class="col">reason</text>
+
+    <rect y="138" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="152" class="col-key">FK extended_by → users</text>
+
+    <rect y="158" width="280" height="84" fill="#F2F2F2"/>
+    <text x="10" y="176" class="col">extended_at (불변)</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- ACTIVITY_LOGS (좌하) -->
+  <!-- ============================================ -->
+  <g transform="translate(40,720)">
+    <rect width="280" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">📋 activity_logs</text>
+    <text x="14" y="34" class="tbl-desc">전체 활동 로그 (불변)</text>
+    <rect y="42" width="280" height="320" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="280" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="280" height="20" fill="#E2EFDA"/>
+    <text x="10" y="76" class="col-key">FK actor_id → users</text>
+
+    <text x="10" y="96" class="col">event_type</text>
+    <text x="10" y="114" class="col">target_type (다형)</text>
+    <text x="10" y="132" class="col">target_id (FK 미설정)</text>
+    <text x="10" y="150" class="col">before_value : JSONB</text>
+    <text x="10" y="168" class="col">after_value : JSONB</text>
+    <text x="10" y="186" class="col">ip_address : INET</text>
+    <text x="10" y="204" class="col">user_agent</text>
+
+    <rect y="212" width="280" height="148" fill="#F2F2F2"/>
+    <text x="10" y="230" class="col">occurred_at (불변)</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- EXPORT_JOBS (중하) -->
+  <!-- ============================================ -->
+  <g transform="translate(420,720)">
+    <rect width="260" height="42" rx="4" fill="#1F3864"/>
+    <text x="14" y="20" class="tbl-title">⚙ export_jobs</text>
+    <text x="14" y="34" class="tbl-desc">비동기 다운로드 작업</text>
+    <rect y="42" width="260" height="260" fill="white" stroke="#1F3864" stroke-width="1.5"/>
+
+    <rect y="42" width="260" height="20" fill="#FFF2CC"/>
+    <text x="10" y="56" class="col-key">🔑 id : UUID</text>
+
+    <rect y="62" width="260" height="20" fill="#E2EFDA"/>
+    <text x="10" y="76" class="col-key">FK requested_by → users</text>
+
+    <text x="10" y="96" class="col">job_type</text>
+    <text x="10" y="114" class="col">scope_option</text>
+    <text x="10" y="132" class="col">filter_payload : JSONB</text>
+    <text x="10" y="150" class="col">status</text>
+    <text x="10" y="168" class="col">result_path</text>
+    <text x="10" y="186" class="col">error_message</text>
+
+    <rect y="194" width="260" height="108" fill="#F2F2F2"/>
+    <text x="10" y="212" class="col">requested_at</text>
+    <text x="10" y="230" class="col">completed_at</text>
+  </g>
+
+  <!-- ============================================ -->
+  <!-- 관계선 -->
+  <!-- ============================================ -->
+
+  <!-- local_governments (1) → contracts (N) -->
+  <path d="M 280 420 L 420 420" stroke="#1F3864" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="320" y="412" class="rel-card">1 ─── N</text>
+
+  <!-- contracts (1) → contract_files (N) -->
+  <path d="M 700 280 L 770 200 L 870 200" stroke="#1F3864" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="760" y="190" class="rel-card">1 ─── N</text>
+
+  <!-- contracts (1) → contract_status_history (N) -->
+  <path d="M 700 480 L 870 480" stroke="#1F3864" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="755" y="472" class="rel-card">1 ─── N</text>
+
+  <!-- contracts (1) → contract_extensions (N) -->
+  <path d="M 700 580 Q 770 660 870 760" stroke="#1F3864" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+  <text x="755" y="680" class="rel-card">1 ─── N</text>
+
+  <!-- users (1) → contracts (N) -->
+  <path d="M 280 140 Q 350 200 420 380" stroke="#1F3864" stroke-width="1.5" fill="none" stroke-dasharray="6,3" marker-end="url(#arrow)"/>
+  <text x="290" y="200" class="rel-label">created_by / updated_by</text>
+
+  <!-- users (1) → activity_logs (N) -->
+  <path d="M 160 242 L 160 720" stroke="#1F3864" stroke-width="1.5" fill="none" stroke-dasharray="6,3" marker-end="url(#arrow)"/>
+  <text x="168" y="500" class="rel-label">actor_id</text>
+
+  <!-- users (1) → contract_files (N) (uploaded_by) -->
+  <path d="M 280 100 Q 600 80 870 100" stroke="#1F3864" stroke-width="1" fill="none" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+  <text x="540" y="78" class="rel-label">uploaded_by</text>
+
+  <!-- users → export_jobs -->
+  <path d="M 200 242 Q 300 480 420 760" stroke="#1F3864" stroke-width="1" fill="none" stroke-dasharray="3,3" marker-end="url(#arrow)"/>
+  <text x="280" y="600" class="rel-label">requested_by</text>
+
+  <!-- 자기참조 (status_history corrected_history_id) -->
+  <path d="M 1150 600 Q 1200 600 1200 540 Q 1200 480 1150 500" stroke="#C00000" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowSelf)"/>
+  <text x="1175" y="545" class="rel-label" fill="#C00000">↻ 보정</text>
+
+  <!-- 범례/주석 -->
+  <g transform="translate(40,1060)">
+    <rect width="1400" height="100" rx="6" fill="#FAFBFC" stroke="#D9D9D9"/>
+    <text x="16" y="22" font-family="'Malgun Gothic',sans-serif" font-size="13" font-weight="bold" fill="#1F3864">📌 핵심 설계 포인트</text>
+    <text x="16" y="44" font-family="'Malgun Gothic',sans-serif" font-size="11" fill="#333">① 상태(status)는 contracts 테이블에 단일 보유 — 한 지자체 내 다수 계약 건의 독립 상태 관리</text>
+    <text x="16" y="62" font-family="'Malgun Gothic',sans-serif" font-size="11" fill="#333">② 갱신 시 신규 contracts 행 생성 + parent_contract_id 자기참조 → 갱신 체인 추적 가능</text>
+    <text x="16" y="80" font-family="'Malgun Gothic',sans-serif" font-size="11" fill="#333">③ 보정(correction)은 원본 이력을 보존한 채 새 이력 행 추가 (is_correction=TRUE, corrected_history_id 로 원본 참조)</text>
+    <text x="720" y="44" font-family="'Malgun Gothic',sans-serif" font-size="11" fill="#333">④ 모든 이력 테이블은 INSERT-ONLY — UPDATE/DELETE 권한 부여 금지</text>
+    <text x="720" y="62" font-family="'Malgun Gothic',sans-serif" font-size="11" fill="#333">⑤ contracts.version 으로 낙관적 락 — 동시 수정 충돌 시 HTTP 409</text>
+    <text x="720" y="80" font-family="'Malgun Gothic',sans-serif" font-size="11" fill="#333">⑥ activity_logs.target_id 는 다형 참조 — FK 미설정, target_type 으로 분기</text>
+  </g>
+
+</svg>
+  </div>
+</div>
+</body>
+</html>

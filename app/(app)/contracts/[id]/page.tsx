@@ -1,0 +1,288 @@
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { createClient } from '@/lib/supabase/server';
+import { requireUser } from '@/lib/auth';
+import {
+  STATUS_LABEL,
+  STATUS_BADGE,
+  fmtDate,
+  fmtDateTime,
+  canWrite,
+  effectiveExpiry,
+} from '@/lib/utils';
+import UploadCard from './upload-card';
+
+export const dynamic = 'force-dynamic';
+
+const TRANSITION_LABEL: Record<string, string> = {
+  create: '신규 등록',
+  file_upload_confirm: '파일 업로드 + 확인',
+  extend: '계약기간 연장',
+  renew_start: '갱신 착수',
+  terminate: '종료 처리',
+  correction: '상태 보정',
+};
+
+export default async function ContractDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const me = await requireUser();
+  const { id } = await params;
+  const supabase = await createClient();
+
+  const { data: contract, error } = await supabase
+    .from('contracts')
+    .select(
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, version, parent_contract_id, created_at, updated_at, local_governments(full_name, sigungu, classification)',
+    )
+    .eq('id', id)
+    .is('deleted_at', null)
+    .maybeSingle();
+
+  if (error) {
+    return (
+      <p className="text-sm text-red-600">조회 오류: {error.message}</p>
+    );
+  }
+  if (!contract) {
+    notFound();
+  }
+
+  const [{ data: files }, { data: history }, { data: extensions }] =
+    await Promise.all([
+      supabase
+        .from('contract_files')
+        .select(
+          'id, original_filename, file_size_bytes, version_no, is_latest, uploaded_at, storage_path',
+        )
+        .eq('contract_id', id)
+        .is('deleted_at', null)
+        .order('version_no', { ascending: false }),
+      supabase
+        .from('contract_status_history')
+        .select(
+          'id, from_status, to_status, transition_type, reason, is_correction, changed_at, trigger_event',
+        )
+        .eq('contract_id', id)
+        .order('changed_at', { ascending: false }),
+      supabase
+        .from('contract_extensions')
+        .select('id, previous_expiry_date, new_expiry_date, reason, extended_at')
+        .eq('contract_id', id)
+        .order('extended_at', { ascending: false }),
+    ]);
+
+  const hasFiles = (files?.length ?? 0) > 0;
+  const writer = canWrite(me.role);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <p className="text-xs text-slate-500">
+            <Link href="/contracts" className="hover:underline">
+              계약 목록
+            </Link>
+            {' '}/{' '}
+            <span className="text-slate-700">계약 상세</span>
+          </p>
+          <h1 className="text-xl font-bold text-slate-900 mt-1">
+            {contract.local_governments?.full_name}
+          </h1>
+        </div>
+        <span
+          className={`inline-flex items-center text-sm font-medium px-3 py-1 rounded ring-1 ring-inset ${STATUS_BADGE[contract.status]}`}
+        >
+          {STATUS_LABEL[contract.status]}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <section className="lg:col-span-2 bg-white border border-slate-200 rounded-lg p-6">
+          <h2 className="text-sm font-semibold text-slate-900 mb-4">
+            계약 정보
+          </h2>
+          <dl className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <Row label="계약체결일">{fmtDate(contract.signed_date)}</Row>
+            <Row label="계약시작일">{fmtDate(contract.effective_date)}</Row>
+            <Row label="계약만료일">{fmtDate(contract.expiry_date)}</Row>
+            <Row label="연장 후 만료일">
+              {fmtDate(contract.extended_expiry_date)}
+            </Row>
+            <Row label="실효 만료일">
+              <span className="font-semibold">
+                {fmtDate(effectiveExpiry(contract))}
+              </span>
+            </Row>
+            <Row label="버전 (낙관락)">v{contract.version}</Row>
+            {contract.termination_reason && (
+              <Row label="종료 사유" full>
+                {contract.termination_reason}
+              </Row>
+            )}
+            {contract.memo && (
+              <Row label="비고" full>
+                <span className="whitespace-pre-line">{contract.memo}</span>
+              </Row>
+            )}
+          </dl>
+          <p className="text-xs text-slate-400 mt-4">
+            등록 {fmtDateTime(contract.created_at)} · 최종 수정{' '}
+            {fmtDateTime(contract.updated_at)}
+          </p>
+        </section>
+
+        {writer ? (
+          <UploadCard
+            contractId={contract.id}
+            currentStatus={contract.status}
+            currentVersion={contract.version}
+            existingFileCount={files?.length ?? 0}
+          />
+        ) : (
+          <aside className="bg-white border border-slate-200 rounded-lg p-6">
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">
+              파일
+            </h2>
+            <p className="text-xs text-slate-500">
+              조회 권한입니다. 다운로드/업로드가 비활성화되어 있습니다.
+            </p>
+          </aside>
+        )}
+      </div>
+
+      <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <div className="px-5 py-3 border-b border-slate-100">
+          <h2 className="text-sm font-semibold text-slate-900">
+            업로드된 파일 ({files?.length ?? 0})
+          </h2>
+        </div>
+        {!hasFiles ? (
+          <p className="px-5 py-10 text-center text-sm text-slate-400">
+            업로드된 파일이 없습니다.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-500 bg-slate-50">
+                <th className="text-left px-5 py-2 font-medium">버전</th>
+                <th className="text-left px-5 py-2 font-medium">파일명</th>
+                <th className="text-right px-5 py-2 font-medium">크기</th>
+                <th className="text-left px-5 py-2 font-medium">업로드일시</th>
+                <th className="text-left px-5 py-2 font-medium">최신</th>
+              </tr>
+            </thead>
+            <tbody>
+              {files!.map((f) => (
+                <tr key={f.id} className="border-t border-slate-100">
+                  <td className="px-5 py-2 tabular-nums">v{f.version_no}</td>
+                  <td className="px-5 py-2">{f.original_filename}</td>
+                  <td className="px-5 py-2 text-right tabular-nums">
+                    {(f.file_size_bytes / 1024 / 1024).toFixed(2)} MB
+                  </td>
+                  <td className="px-5 py-2 text-slate-600 text-xs">
+                    {fmtDateTime(f.uploaded_at)}
+                  </td>
+                  <td className="px-5 py-2">
+                    {f.is_latest && (
+                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded">
+                        LATEST
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h2 className="text-sm font-semibold text-slate-900">상태 이력</h2>
+          </div>
+          {(history?.length ?? 0) === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-slate-400">
+              이력이 없습니다.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {history!.map((h) => (
+                <li key={h.id} className="px-5 py-3 text-sm">
+                  <p className="text-slate-900">
+                    {h.from_status
+                      ? `${STATUS_LABEL[h.from_status]} → `
+                      : ''}
+                    <b>{STATUS_LABEL[h.to_status]}</b>
+                    <span className="ml-2 text-xs text-slate-500">
+                      ({TRANSITION_LABEL[h.transition_type] ?? h.transition_type})
+                    </span>
+                    {h.is_correction && (
+                      <span className="ml-2 text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">
+                        보정
+                      </span>
+                    )}
+                  </p>
+                  {h.reason && (
+                    <p className="text-xs text-slate-500 mt-1">{h.reason}</p>
+                  )}
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {fmtDateTime(h.changed_at)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h2 className="text-sm font-semibold text-slate-900">연장 이력</h2>
+          </div>
+          {(extensions?.length ?? 0) === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-slate-400">
+              연장 이력이 없습니다.
+            </p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {extensions!.map((e) => (
+                <li key={e.id} className="px-5 py-3 text-sm">
+                  <p className="text-slate-900 tabular-nums">
+                    {fmtDate(e.previous_expiry_date)} →{' '}
+                    <b>{fmtDate(e.new_expiry_date)}</b>
+                  </p>
+                  {e.reason && (
+                    <p className="text-xs text-slate-500 mt-1">{e.reason}</p>
+                  )}
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    {fmtDateTime(e.extended_at)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function Row({
+  label,
+  children,
+  full,
+}: {
+  label: string;
+  children: React.ReactNode;
+  full?: boolean;
+}) {
+  return (
+    <div className={full ? 'col-span-2' : ''}>
+      <dt className="text-xs text-slate-500">{label}</dt>
+      <dd className="text-sm text-slate-900 mt-0.5 tabular-nums">{children}</dd>
+    </div>
+  );
+}
