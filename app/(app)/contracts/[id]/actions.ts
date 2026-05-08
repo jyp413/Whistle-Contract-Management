@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
-import { requireWriter } from '@/lib/auth';
+import { requireMaster, requireWriter } from '@/lib/auth';
 
 type Result<T = Record<string, never>> =
   | ({ error: string } & Partial<T>)
@@ -364,6 +364,63 @@ export async function startRenewal(input: {
   revalidatePath(`/contracts/${parent.id}`);
   revalidatePath('/contracts');
   return { ok: true, newId: child.id };
+}
+
+/**
+ * 계약 soft delete (Master 전용).
+ * - deleted_at = NOW() 만 세팅, status 컬럼은 건드리지 않음 (전이 트리거 회피).
+ * - 낙관락 + activity_logs(contract_delete) 기록.
+ * - history / extensions / activity_logs 행은 그대로 보존 → "이력 불변성" 준수.
+ */
+export async function deleteContract(input: {
+  contractId: string;
+  expectedVersion: number;
+}): Promise<Result<{ ok: true }>> {
+  const me = await requireMaster();
+  const supabase = await createClient();
+
+  const { data: cur, error: e1 } = await supabase
+    .from('contracts')
+    .select('id, status, version')
+    .eq('id', input.contractId)
+    .is('deleted_at', null)
+    .single();
+
+  if (e1 || !cur) return { error: '계약을 찾을 수 없습니다.' };
+  if (cur.version !== input.expectedVersion) {
+    return { error: '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' };
+  }
+
+  const { data: upd, error: e2 } = await supabase
+    .from('contracts')
+    .update({
+      deleted_at: new Date().toISOString(),
+      version: cur.version + 1,
+      updated_by: me.id,
+    })
+    .eq('id', input.contractId)
+    .eq('version', cur.version)
+    .is('deleted_at', null)
+    .select('id')
+    .maybeSingle();
+
+  if (e2 || !upd) {
+    return { error: '동시 수정 충돌이 발생했습니다. 새로고침 후 다시 시도하세요.' };
+  }
+
+  await supabase.from('activity_logs').insert({
+    actor_id: me.id,
+    event_type: 'contract_delete',
+    target_type: 'contract',
+    target_id: input.contractId,
+    before_value: { status: cur.status, deleted_at: null },
+    after_value: { deleted_at: new Date().toISOString() },
+  });
+
+  revalidatePath('/contracts');
+  revalidatePath('/dashboard');
+  revalidatePath('/expiring');
+  return { ok: true };
 }
 
 /**

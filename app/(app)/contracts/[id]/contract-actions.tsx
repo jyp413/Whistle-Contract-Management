@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   applyCorrection,
+  deleteContract,
   extendContract,
   startRenewal,
   terminateContract,
@@ -41,7 +42,7 @@ export default function ContractActions({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<
-    null | 'extend' | 'terminate' | 'renew' | 'correct'
+    null | 'extend' | 'terminate' | 'renew' | 'correct' | 'delete'
   >(null);
 
   if (userRole === 'viewer') return null;
@@ -66,6 +67,13 @@ export default function ContractActions({
         tone="amber"
         onClick={() => setOpen('correct')}
       />
+      {userRole === 'master' && (
+        <ActionBtn
+          label="삭제"
+          tone="danger"
+          onClick={() => setOpen('delete')}
+        />
+      )}
 
       {open === 'extend' && (
         <ExtendModal
@@ -117,6 +125,18 @@ export default function ContractActions({
           }}
         />
       )}
+      {open === 'delete' && (
+        <DeleteModal
+          contractId={contractId}
+          version={version}
+          onClose={() => setOpen(null)}
+          onSuccess={() => {
+            setOpen(null);
+            router.push('/contracts');
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -128,13 +148,14 @@ function ActionBtn({
 }: {
   label: string;
   onClick: () => void;
-  tone: 'indigo' | 'blue' | 'slate' | 'amber';
+  tone: 'indigo' | 'blue' | 'slate' | 'amber' | 'danger';
 }) {
   const cls = {
     indigo: 'bg-indigo-600 hover:bg-indigo-700 text-white',
     blue: 'bg-blue-600 hover:bg-blue-700 text-white',
     slate: 'bg-slate-700 hover:bg-slate-800 text-white',
     amber: 'border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900',
+    danger: 'bg-rose-600 hover:bg-rose-700 text-white',
   }[tone];
   return (
     <button
@@ -450,6 +471,56 @@ function CorrectModal({
         label="보정 적용"
         disabled={correctable.length === 0}
         tone="warn"
+      />
+    </Modal>
+  );
+}
+
+function DeleteModal({
+  contractId,
+  version,
+  onClose,
+  onSuccess,
+}: {
+  contractId: string;
+  version: number;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [pending, start] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function submit() {
+    setError(null);
+    start(async () => {
+      const r = await deleteContract({
+        contractId,
+        expectedVersion: version,
+      });
+      if (r.error) setError(r.error);
+      else onSuccess();
+    });
+  }
+
+  return (
+    <Modal title="계약 삭제" onClose={onClose}>
+      <p className="text-sm text-slate-700">
+        이 계약을 삭제하시겠습니까? 목록·KPI·드릴다운에서{' '}
+        <b>즉시 사라집니다</b>.
+      </p>
+      <div className="mt-3 bg-amber-50 border border-amber-200 rounded p-3 text-xs text-amber-900 leading-relaxed">
+        ⚠ DB 이력(상태/연장/활동 로그)은 보존됩니다.
+        <br />
+        실수로 삭제했다면 관리자가 SQL로 <code>deleted_at = NULL</code> 처리해
+        복구할 수 있습니다.
+      </div>
+      {error && <Err msg={error} />}
+      <Footer
+        onClose={onClose}
+        pending={pending}
+        onSubmit={submit}
+        label="삭제"
+        tone="danger"
       />
     </Modal>
   );

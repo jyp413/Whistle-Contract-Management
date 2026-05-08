@@ -12,6 +12,7 @@ import {
 } from '@/lib/utils';
 import UploadCard from './upload-card';
 import ContractActions from './contract-actions';
+import FilePreviewButton from './file-preview';
 
 export const dynamic = 'force-dynamic';
 
@@ -174,11 +175,12 @@ export default async function ContractDetailPage({
           />
         ) : (
           <aside className="bg-white border border-slate-200 rounded-lg p-6">
-            <h2 className="text-sm font-semibold text-slate-900 mb-2">
-              파일
-            </h2>
-            <p className="text-xs text-slate-500">
-              조회 권한입니다. 다운로드/업로드가 비활성화되어 있습니다.
+            <h2 className="text-sm font-semibold text-slate-900 mb-2">파일</h2>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              조회 권한입니다. 업로드는 비활성화되어 있고, 아래 파일 목록의
+              「미리보기」 버튼으로 PDF 내용을 확인할 수 있습니다.
+              <br />
+              개별 다운로드는 Master/Accounting 권한에서만 가능합니다.
             </p>
           </aside>
         )}
@@ -203,6 +205,7 @@ export default async function ContractDetailPage({
                 <th className="text-right px-5 py-2 font-medium">크기</th>
                 <th className="text-left px-5 py-2 font-medium">업로드일시</th>
                 <th className="text-left px-5 py-2 font-medium">최신</th>
+                <th className="text-right px-5 py-2 font-medium">동작</th>
               </tr>
             </thead>
             <tbody>
@@ -222,6 +225,13 @@ export default async function ContractDetailPage({
                         LATEST
                       </span>
                     )}
+                  </td>
+                  <td className="px-5 py-2 text-right">
+                    <FilePreviewButton
+                      storagePath={f.storage_path}
+                      filename={f.original_filename}
+                      canDownload={writer}
+                    />
                   </td>
                 </tr>
               ))}
