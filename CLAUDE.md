@@ -53,6 +53,10 @@ This is a **계약 건 (contract) 단위 상태 관리 시스템**. Key invarian
 
 Every public table has RLS. Policies reference `public.current_user_role()` which is SECURITY DEFINER. **`authenticated` MUST keep `EXECUTE` on this function** — Postgres checks EXECUTE permission on the caller role *before* running the SECURITY DEFINER body, so revoking it breaks every RLS evaluation (manifests as `permission denied for function current_user_role` or empty result sets). The function only returns the user's own role, so its REST `/rpc/current_user_role` exposure is acceptable. Trigger-only functions (`handle_new_auth_user`, etc.) DO have EXECUTE revoked from anon/authenticated since they never need direct call.
 
+**Soft-delete trap:** `contracts_select_all` USING is `(deleted_at IS NULL OR current_user_role() = 'master')`. The `OR master` clause is required — Postgres applies the SELECT USING qual to the **new** row of an UPDATE in addition to WITH CHECK (so the updated row remains visible to its updater). Without that clause, setting `deleted_at = NOW()` fails as `new row violates row-level security policy for table "contracts"`. App queries still filter `.is('deleted_at', null)` explicitly, so user-visible behaviour is unchanged for non-master and the master-sees-all clause is the foundation for a future trash page.
+
+**`activity_logs` INSERT policy:** there must be a `logs_insert_self` policy with `WITH CHECK (actor_id = auth.uid() AND current_user_role() IN (...))`. Server actions write logs as the user JWT (not service_role), so without this policy every `.insert()` silently fails (PostgREST returns 401 but most action code does `await supabase.from(...).insert(...)` without checking `error`).
+
 Effective access:
 - `master` — full
 - `accounting` — read all + write contracts/files/history/extensions; owns reads on activity_logs
