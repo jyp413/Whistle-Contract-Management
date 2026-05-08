@@ -64,7 +64,10 @@ export default function UploadCard({
 
     setProgress('① 파일 검증 + 해시 계산 중…');
     const checksum = await sha256(file);
-    const path = `${contractId}/${Date.now()}_${sanitize(file.name)}`;
+    // Supabase Storage 키는 ASCII 만 허용 (한글/특수문자 거부됨).
+    // 원본 파일명은 DB contract_files.original_filename 에 한글 그대로 저장.
+    const ext = file.name.toLowerCase().endsWith('.pdf') ? '.pdf' : '';
+    const path = `${contractId}/${Date.now()}-${crypto.randomUUID()}${ext}`;
 
     setProgress('② Supabase Storage 업로드 중…');
     const supabase = createClient();
@@ -268,6 +271,3 @@ async function sha256(file: File): Promise<string> {
   return hex;
 }
 
-function sanitize(name: string) {
-  return name.replace(/[^\w가-힣.\-]+/g, '_').slice(0, 120);
-}
