@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireMaster } from '@/lib/auth';
 import UsersTable from './users-table';
@@ -14,6 +15,12 @@ export default async function UsersPage() {
 
   return (
     <div className="space-y-4">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+      >
+        <span aria-hidden>←</span> 대시보드
+      </Link>
       <div>
         <h1 className="text-xl font-bold text-slate-900">사용자 관리</h1>
         <p className="text-sm text-slate-500 mt-1">

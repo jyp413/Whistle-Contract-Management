@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireWriter } from '@/lib/auth';
 import NewContractForm from './form';
@@ -16,6 +17,12 @@ export default async function NewContractPage() {
 
   return (
     <div className="max-w-xl mx-auto">
+      <Link
+        href="/contracts"
+        className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900 mb-3"
+      >
+        <span aria-hidden>←</span> 계약 목록
+      </Link>
       <h1 className="text-xl font-bold text-slate-900 mb-4">신규 계약 등록</h1>
       <p className="text-sm text-slate-500 mb-4">
         계약사항(지자체·일자)을 등록하면 자동으로 <b>체결중</b> 상태가 됩니다. PDF

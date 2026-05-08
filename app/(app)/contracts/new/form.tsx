@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createContractAction } from './actions';
+import SuccessModal from '@/app/components/success-modal';
 
 type LG = {
   id: string;
@@ -33,6 +34,10 @@ export default function NewContractForm({
   const [effectiveDate, setEffectiveDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
   const [memo, setMemo] = useState('');
+  const [successInfo, setSuccessInfo] = useState<
+    | { lgName: string }
+    | null
+  >(null);
 
   // 광역단체 목록 (sido 고유값, 데이터 출현 순서 유지)
   const sidoList = useMemo(() => {
@@ -72,12 +77,18 @@ export default function NewContractForm({
         setError(result.error);
         return;
       }
-      router.push(`/contracts/${result.id}`);
-      router.refresh();
+      setSuccessInfo({ lgName: selectedLg?.full_name ?? '' });
     });
   }
 
+  function handleSuccessConfirm() {
+    setSuccessInfo(null);
+    router.push('/contracts');
+    router.refresh();
+  }
+
   return (
+    <>
     <form
       onSubmit={submit}
       className="bg-white border border-slate-200 rounded-lg p-6 space-y-4"
@@ -168,7 +179,7 @@ export default function NewContractForm({
       <div className="flex justify-end gap-2">
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push('/contracts')}
           className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
         >
           취소
@@ -182,6 +193,15 @@ export default function NewContractForm({
         </button>
       </div>
     </form>
+
+    {successInfo && (
+      <SuccessModal
+        message={`"${successInfo.lgName}" 계약이 등록되었습니다.\n상태: 체결중`}
+        onClose={handleSuccessConfirm}
+        confirmLabel="확인 — 계약 목록으로"
+      />
+    )}
+    </>
   );
 }
 

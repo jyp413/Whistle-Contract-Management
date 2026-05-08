@@ -60,6 +60,12 @@ export default async function ContractsListPage({
 
   return (
     <div className="space-y-4">
+      <Link
+        href="/dashboard"
+        className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+      >
+        <span aria-hidden>←</span> 대시보드
+      </Link>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-slate-900">계약 목록</h1>
         <div className="flex items-center gap-2">
