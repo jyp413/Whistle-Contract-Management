@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useEffect, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { confirmCompletion, registerUploadedFile } from './actions';
@@ -28,32 +28,45 @@ export default function UploadCard({
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [latestVersion, setLatestVersion] = useState(currentVersion);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   const canConfirmComplete =
     currentStatus === 'in_progress' || currentStatus === 'updating';
 
+  // 성공 메시지는 4초 후 자동 사라짐
+  useEffect(() => {
+    if (!success) return;
+    const id = setTimeout(() => setSuccess(null), 4000);
+    return () => clearTimeout(id);
+  }, [success]);
+
   async function handleUpload(file: File) {
     setError(null);
+    setSuccess(null);
     setProgress(null);
 
     if (!file.name.toLowerCase().endsWith('.pdf')) {
-      setError('PDF 파일만 업로드 가능합니다.');
+      setError('PDF 파일만 업로드 가능합니다. 선택한 파일: ' + file.name);
       return;
     }
     if (file.type && file.type !== 'application/pdf') {
-      setError('PDF 파일만 업로드 가능합니다.');
+      setError(
+        `PDF 파일만 업로드 가능합니다. 선택한 파일의 MIME: ${file.type || '미지정'}`,
+      );
       return;
     }
     if (file.size > MAX_BYTES) {
-      setError('파일 크기는 50MB를 초과할 수 없습니다.');
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      setError(`파일 크기 ${mb}MB > 최대 50MB. 다른 파일을 선택하세요.`);
       return;
     }
 
-    setProgress('파일 검증 중…');
+    setProgress('① 파일 검증 + 해시 계산 중…');
     const checksum = await sha256(file);
     const path = `${contractId}/${Date.now()}_${sanitize(file.name)}`;
 
-    setProgress('Supabase Storage 업로드 중…');
+    setProgress('② Supabase Storage 업로드 중…');
     const supabase = createClient();
     const { error: uploadErr } = await supabase.storage
       .from('contract-files')
@@ -63,12 +76,12 @@ export default function UploadCard({
         upsert: false,
       });
     if (uploadErr) {
-      setError('업로드 실패: ' + uploadErr.message);
+      setError('Storage 업로드 실패: ' + uploadErr.message);
       setProgress(null);
       return;
     }
 
-    setProgress('레코드 등록 중…');
+    setProgress('③ DB 레코드 등록 중…');
     const result = await registerUploadedFile({
       contractId,
       storagePath: path,
@@ -78,19 +91,34 @@ export default function UploadCard({
     });
 
     if (result.error) {
-      setError(result.error);
+      setError('레코드 등록 실패: ' + result.error);
       setProgress(null);
       return;
     }
 
     setProgress(null);
     if (fileRef.current) fileRef.current.value = '';
+    const sizeMB = (file.size / 1024 / 1024).toFixed(2);
+    setSuccess(
+      `✓ "${file.name}" (${sizeMB} MB) v${result.versionNo} 업로드 완료`,
+    );
     router.refresh();
 
     // 체결중/갱신중일 때만 확인 팝업
     if (canConfirmComplete) {
       setConfirmOpen(true);
     }
+  }
+
+  function pickFile() {
+    fileRef.current?.click();
+  }
+
+  function onDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const f = e.dataTransfer.files?.[0];
+    if (f) handleUpload(f);
   }
 
   function handleConfirm() {
@@ -111,38 +139,72 @@ export default function UploadCard({
 
   return (
     <>
-      <aside className="bg-white border border-slate-200 rounded-lg p-6 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-900">PDF 업로드</h2>
-        <p className="text-xs text-slate-500">
-          단일 파일 최대 50MB · PDF만 허용
-          {existingFileCount > 0 && ` · 새 버전이 v${existingFileCount + 1}으로 등록됩니다.`}
-        </p>
-        <input
-          ref={fileRef}
-          type="file"
-          accept="application/pdf"
-          disabled={pending}
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) handleUpload(f);
+      <aside className="bg-white border border-slate-200 rounded-lg p-5 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-900">PDF 업로드</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            단일 파일 최대 50MB · application/pdf
+            {existingFileCount > 0 &&
+              ` · 새 버전이 v${existingFileCount + 1} 으로 등록됩니다.`}
+          </p>
+        </div>
+
+        <div
+          onClick={pickFile}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragOver(true);
           }}
-          className="block w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
-        />
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          role="button"
+          tabIndex={0}
+          aria-disabled={pending}
+          className={`flex flex-col items-center justify-center text-center px-4 py-6 rounded border-2 border-dashed cursor-pointer transition ${
+            dragOver
+              ? 'border-indigo-500 bg-indigo-50'
+              : 'border-slate-300 hover:border-indigo-400 hover:bg-slate-50'
+          } ${pending ? 'opacity-60 pointer-events-none' : ''}`}
+        >
+          <p className="text-sm font-medium text-slate-900">
+            클릭해서 PDF 선택
+          </p>
+          <p className="text-xs text-slate-500 mt-1">또는 이 영역에 드래그</p>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            disabled={pending}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) handleUpload(f);
+            }}
+            className="hidden"
+          />
+        </div>
+
         {progress && (
-          <p className="text-xs text-slate-500">⏳ {progress}</p>
+          <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-200 rounded px-2 py-1.5">
+            ⏳ {progress}
+          </p>
+        )}
+        {success && (
+          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1.5">
+            {success}
+          </p>
         )}
         {error && (
-          <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">
-            {error}
+          <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1.5 whitespace-pre-line">
+            ✗ {error}
           </p>
         )}
         {currentStatus === 'completed' && (
-          <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
+          <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-200 rounded px-2 py-1">
             계약완료 상태입니다. 추가 업로드 시 새 버전으로 보존됩니다.
           </p>
         )}
         {currentStatus === 'terminated' && (
-          <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded px-2 py-1">
+          <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded px-2 py-1">
             종료된 계약은 파일을 추가하지 않는 것을 권장합니다.
           </p>
         )}

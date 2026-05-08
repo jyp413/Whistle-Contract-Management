@@ -369,7 +369,8 @@ export async function startRenewal(input: {
 /**
  * 계약 soft delete (Master 전용).
  * - deleted_at = NOW() 만 세팅, status 컬럼은 건드리지 않음 (전이 트리거 회피).
- * - 낙관락 + activity_logs(contract_delete) 기록.
+ * - 낙관락은 head 버전 비교 + count: 'exact' 로 영향 행 수 검사.
+ *   .select() 후 RLS 가 deleted_at IS NULL 행만 보이므로 RETURNING 으로 검증 시 실패.
  * - history / extensions / activity_logs 행은 그대로 보존 → "이력 불변성" 준수.
  */
 export async function deleteContract(input: {
@@ -388,23 +389,27 @@ export async function deleteContract(input: {
 
   if (e1 || !cur) return { error: '계약을 찾을 수 없습니다.' };
   if (cur.version !== input.expectedVersion) {
-    return { error: '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' };
+    return {
+      error: `다른 사용자가 먼저 수정했습니다 (서버 버전 v${cur.version}, 화면 v${input.expectedVersion}). 새로고침 후 다시 시도하세요.`,
+    };
   }
 
-  const { data: upd, error: e2 } = await supabase
+  const deletedAt = new Date().toISOString();
+  const { error: e2, count } = await supabase
     .from('contracts')
-    .update({
-      deleted_at: new Date().toISOString(),
-      version: cur.version + 1,
-      updated_by: me.id,
-    })
+    .update(
+      {
+        deleted_at: deletedAt,
+        version: cur.version + 1,
+        updated_by: me.id,
+      },
+      { count: 'exact' },
+    )
     .eq('id', input.contractId)
-    .eq('version', cur.version)
-    .is('deleted_at', null)
-    .select('id')
-    .maybeSingle();
+    .eq('version', cur.version);
 
-  if (e2 || !upd) {
+  if (e2) return { error: e2.message };
+  if (!count) {
     return { error: '동시 수정 충돌이 발생했습니다. 새로고침 후 다시 시도하세요.' };
   }
 
@@ -414,7 +419,7 @@ export async function deleteContract(input: {
     target_type: 'contract',
     target_id: input.contractId,
     before_value: { status: cur.status, deleted_at: null },
-    after_value: { deleted_at: new Date().toISOString() },
+    after_value: { deleted_at: deletedAt },
   });
 
   revalidatePath('/contracts');
