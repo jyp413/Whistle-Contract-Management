@@ -35,15 +35,15 @@ export default async function PendingPage() {
           </dl>
         </div>
         <p className="text-xs text-slate-500 mt-5">
-          관리자에게 위 이메일로 승인을 요청해 주세요. 승인 후에는 본 페이지에서 자동으로
-          대시보드로 이동합니다.
+          관리자에게 위 이메일로 승인을 요청해 주세요. 승인 후 다시 로그인하시면
+          시스템 사용이 가능합니다.
         </p>
         <form action="/auth/signout" method="post" className="mt-6">
           <button
             type="submit"
-            className="text-sm text-slate-500 hover:text-slate-900 underline-offset-2 hover:underline"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium py-2 rounded"
           >
-            로그아웃
+            확인 — 로그인 페이지로
           </button>
         </form>
       </div>

@@ -5,6 +5,13 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm bg-white rounded-lg shadow-sm border p-8">
+        <Link
+          href="/login"
+          className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900 mb-3"
+          aria-label="로그인 페이지로 돌아가기"
+        >
+          <span aria-hidden>←</span> 로그인 페이지
+        </Link>
         <h1 className="text-xl font-bold text-slate-900 mb-1">회원가입</h1>
         <p className="text-sm text-slate-500 mb-6 leading-relaxed">
           가입 후 <b>Master 관리자의 승인</b>이 있어야 시스템을 사용할 수 있습니다.
