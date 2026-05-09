@@ -9,7 +9,7 @@ import type {
   Polygon as TopoPolygon,
   MultiPolygon as TopoMultiPolygon,
 } from 'topojson-specification';
-import type { Feature, FeatureCollection, Geometry, MultiPolygon, Polygon } from 'geojson';
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from 'geojson';
 import type { LgStat, View } from '@/lib/map/types';
 import {
   splitPolygonName,
@@ -173,7 +173,9 @@ export function RegionMap({ stats }: Props) {
                 const bounds = path.bounds(vf.feature);
                 const w = bounds[1][0] - bounds[0][0];
                 if (w < 28) return null;
+                const noData = vf.lgs.length === 0 || vf.lgs.every((l) => l.total === 0);
                 const cov = coverageRate(vf.lgs);
+                const subLabel = noData ? '데이터 없음' : fmtPct(cov.rate);
                 return (
                   <g
                     key={`${vf.key}-label`}
@@ -194,7 +196,7 @@ export function RegionMap({ stats }: Props) {
                     </text>
                     <text
                       textAnchor="middle"
-                      className="fill-slate-700 text-[9px] tabular-nums"
+                      className={`text-[9px] tabular-nums ${noData ? 'fill-slate-400' : 'fill-slate-700'}`}
                       style={{
                         paintOrder: 'stroke',
                         stroke: 'white',
@@ -202,7 +204,7 @@ export function RegionMap({ stats }: Props) {
                       }}
                       y={9}
                     >
-                      {fmtPct(cov.rate)}
+                      {subLabel}
                     </text>
                   </g>
                 );
@@ -288,11 +290,6 @@ function buildSido(topo: Topology, stats: LgStat[], sidoName: string): ViewFeatu
   const sidoCode = Object.entries(SIDO_BY_GEO_CODE).find(([, v]) => v === sidoName)?.[0];
   if (!sidoCode) return [];
 
-  const fc = feature(
-    topo,
-    topo.objects.sigungu as GeometryCollection<GeoProps>,
-  ) as FeatureCollection<Polygon | MultiPolygon, GeoProps>;
-  const polysOfSido = fc.features.filter((f) => f.properties.code.startsWith(sidoCode));
   const sigunguTopoCol = topo.objects.sigungu as GeometryCollection<GeoProps>;
   const childrenOf = sigunguTopoCol.geometries.filter((g) =>
     (g.properties as GeoProps | undefined)?.code?.startsWith(sidoCode),
@@ -300,9 +297,15 @@ function buildSido(topo: Topology, stats: LgStat[], sidoName: string): ViewFeatu
 
   // 세종: single feature, render as leaf-only.
   if (sidoCode === '29') {
-    const f = polysOfSido[0];
-    if (!f) return [];
-    const lgs = lgsByGeoCode(stats, f.properties.code);
+    const g = childrenOf[0];
+    if (!g) return [];
+    const props = g.properties as GeoProps;
+    const f: GeoFeature = {
+      type: 'Feature',
+      geometry: (feature(topo, g) as GeoFeature).geometry,
+      properties: props,
+    };
+    const lgs = lgsByGeoCode(stats, props.code);
     return [
       {
         key: `leaf:29`,
