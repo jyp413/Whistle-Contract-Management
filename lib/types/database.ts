@@ -7,6 +7,8 @@ export type Json =
   | Json[]
 
 export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
@@ -367,6 +369,7 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           full_name: string
+          geo_code: string | null
           id: string
           memo: string | null
           sido: string
@@ -378,6 +381,7 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           full_name: string
+          geo_code?: string | null
           id?: string
           memo?: string | null
           sido: string
@@ -389,6 +393,7 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           full_name?: string
+          geo_code?: string | null
           id?: string
           memo?: string | null
           sido?: string
@@ -458,6 +463,22 @@ export type Database = {
           in_progress_count: number
           total_active: number
           updating_count: number
+        }[]
+      }
+      get_region_stats: {
+        Args: Record<string, never>
+        Returns: {
+          classification: Database["public"]["Enums"]["lg_class"]
+          completed: number
+          full_name: string
+          geo_code: string | null
+          in_progress: number
+          lg_id: string
+          sido: string
+          sigungu: string
+          terminated: number
+          total: number
+          updating: number
         }[]
       }
       terminate_expired_contracts: {
