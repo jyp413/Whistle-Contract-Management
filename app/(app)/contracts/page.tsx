@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import ZipMenu from './zip-menu';
+import RowPreview from './row-preview';
 import {
   STATUS_LABEL,
   STATUS_BADGE,
@@ -57,6 +58,28 @@ export default async function ContractsListPage({
       (c.local_governments?.full_name ?? '').toLowerCase().includes(needle),
     );
   }
+
+  // 각 계약의 최신 파일을 한 번에 조회 → contract_id → file 매핑
+  const contractIds = filtered.map((c) => c.id);
+  const fileMap = new Map<
+    string,
+    { storage_path: string; original_filename: string }
+  >();
+  if (contractIds.length > 0) {
+    const { data: files } = await supabase
+      .from('contract_files')
+      .select('contract_id, storage_path, original_filename')
+      .in('contract_id', contractIds)
+      .eq('is_latest', true)
+      .is('deleted_at', null);
+    for (const f of files ?? []) {
+      fileMap.set(f.contract_id, {
+        storage_path: f.storage_path,
+        original_filename: f.original_filename,
+      });
+    }
+  }
+  const userCanDownload = canWrite(me.role);
 
   return (
     <div className="space-y-4">
@@ -141,12 +164,13 @@ export default async function ContractsListPage({
               <th className="text-left px-4 py-2 font-medium">시작일</th>
               <th className="text-left px-4 py-2 font-medium">실효 만료일</th>
               <th className="text-left px-4 py-2 font-medium">최종 수정</th>
+              <th className="text-right px-4 py-2 font-medium">미리보기</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                <td colSpan={7} className="px-4 py-10 text-center text-slate-400">
                   계약이 없습니다.
                 </td>
               </tr>
@@ -182,6 +206,12 @@ export default async function ContractsListPage({
                 </td>
                 <td className="px-4 py-2 text-slate-600 text-xs">
                   {fmtDateTime(c.updated_at)}
+                </td>
+                <td className="px-4 py-2 text-right">
+                  <RowPreview
+                    file={fileMap.get(c.id) ?? null}
+                    canDownload={userCanDownload}
+                  />
                 </td>
               </tr>
             ))}
