@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Critical: Next.js version
 
-@AGENTS.md says this Next.js (16.x) has breaking changes from training-data versions. **Read `node_modules/next/dist/docs/` before writing or editing any Next.js code** — especially `01-app/` for App Router APIs. Heed deprecation warnings (e.g. `middleware` is deprecated in favor of `proxy` per build output).
+@AGENTS.md says this Next.js (16.x) has breaking changes from training-data versions. **Read `node_modules/next/dist/docs/` before writing or editing any Next.js code** — especially `01-app/` for App Router APIs. Heed deprecation warnings.
+
+The root file is `proxy.ts`, NOT `middleware.ts`. Next.js 16 renamed the convention; the function must be exported as `proxy` (or default), not `middleware`. Vercel's bundler rejects the old name.
 
 ## Commands
 
@@ -17,7 +19,17 @@ npm run lint     # eslint
 
 For local preview, use `mcp__Claude_Preview__preview_start` (configured in `.claude/launch.json`) instead of running `npm run dev` directly. The dev server holds a per-directory port lock — only one instance can run per project at a time.
 
-`.env.local` must contain `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. See `.env.example`.
+`.env.local` must contain `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`. See `.env.example`. Production env vars on Vercel additionally need `SUPABASE_SERVICE_ROLE_KEY` (cron) and `CRON_SECRET`.
+
+### Vercel CLI on Korean Windows
+
+If the OS hostname is non-ASCII (e.g. `박정열`), the Vercel CLI fails at HTTP User-Agent construction (`Error: ... is not a legal HTTP header value` from Node 24's strict header validator). Run via the shim instead:
+
+```bash
+node --require ./.vercel-shim.cjs "$(npm root -g)/vercel/dist/vc.js" <args>
+```
+
+`.vercel-shim.cjs` monkey-patches `os.hostname()` and `os.userInfo()` to ASCII before Vercel boots. The shim is git-ignored.
 
 ## Database changes
 
@@ -27,6 +39,8 @@ Use the Supabase MCP server, **not** local migration files:
 - `mcp__263e0873-...__generate_typescript_types` — regenerate after any schema change; paste the result into `lib/types/database.ts`
 
 The `Database` type in `lib/types/database.ts` is hand-maintained. Keep the `Relationships: [...]` arrays — supabase-js's PostgREST inference falls back to `never` without them, breaking `.select()` types.
+
+Public RPCs currently exposed: `get_kpi_summary`, `get_region_stats`, `apply_correction`, `terminate_expired_contracts`, `current_user_role`. The trigger-only `handle_new_auth_user` / `handle_auth_user_email_changed` have EXECUTE revoked from anon/authenticated.
 
 ## Architecture
 
@@ -44,10 +58,10 @@ This is a **계약 건 (contract) 단위 상태 관리 시스템**. Key invarian
 
 ### Auth flow
 
-- `auth.users` is Supabase-managed. A trigger `handle_new_auth_user()` mirrors signups into `public.users` with `role='viewer'` by default. **Email `pjy413@gmail.com` is hard-coded to auto-promote to `master`** in that trigger.
-- `middleware.ts` (Next.js root) → `lib/supabase/middleware.ts` runs on every request, refreshes the Supabase session, redirects unauthenticated users to `/login`, and bounces authenticated users away from auth pages.
-- Server Components/Actions get the user via `lib/auth.ts`: `requireUser()` / `requireWriter()` (master+accounting) / `requireMaster()`. These redirect on failure, so callers don't need to handle unauthenticated cases.
-- The `(app)` route group in `app/(app)/layout.tsx` calls `requireUser()` once and renders the shell with role-aware nav.
+- `auth.users` is Supabase-managed. A trigger `handle_new_auth_user()` mirrors signups into `public.users` with `role='viewer'`, `is_active=FALSE` (Master must approve via `/users`). **Email `pjy413@gmail.com` is hard-coded to auto-promote to `master` + `is_active=TRUE`** in that trigger. The trigger also auto-confirms the email (`email_confirmed_at = NOW()`) — `confirmed_at` is a generated column and must NOT be UPDATEd directly.
+- `proxy.ts` (Next.js root) → `lib/supabase/proxy.ts` runs on every non-API/non-static request, refreshes the Supabase session, redirects unauthenticated users to `/login`, and bounces authenticated users away from auth pages.
+- The proxy matcher excludes `api/`, `_next/static`, `_next/image`, image extensions, **and `geo/` + `*.json`** (the static topojson under `public/geo/` is huge — keep it out of the edge function).
+- Server Components/Actions get the user via `lib/auth.ts`: `requireUser()` / `requireWriter()` (master+accounting) / `requireMaster()`. `requireUser()` redirects unauthenticated → `/login`, soft-deleted → `/login`, **inactive (승인 대기) → `/pending`**. The `(app)` route group in `app/(app)/layout.tsx` calls `requireUser()` once and renders the shell with role-aware nav.
 
 ### RLS model
 
@@ -57,10 +71,15 @@ Every public table has RLS. Policies reference `public.current_user_role()` whic
 
 **`activity_logs` INSERT policy:** there must be a `logs_insert_self` policy with `WITH CHECK (actor_id = auth.uid() AND current_user_role() IN (...))`. Server actions write logs as the user JWT (not service_role), so without this policy every `.insert()` silently fails (PostgREST returns 401 but most action code does `await supabase.from(...).insert(...)` without checking `error`).
 
+**RLS-filtered RETURNING trap:** for soft delete, `await sb.update({deleted_at: now}).eq(...).select('id').maybeSingle()` returns `data: null` because the new row's `deleted_at IS NOT NULL` is filtered out by the SELECT policy after UPDATE. Some PostgREST paths even roll back the UPDATE in this case. Use `{ count: 'exact' }` instead of `.select()` for soft-delete-style mutations:
+```ts
+const { error, count } = await sb.from('contracts').update({...}, { count: 'exact' }).eq(...);
+```
+
 Effective access:
 - `master` — full
 - `accounting` — read all + write contracts/files/history/extensions; owns reads on activity_logs
-- `viewer` — read contracts/files/lg only; cannot download (enforced at app layer)
+- `viewer` — read contracts/files/lg only; cannot download (enforced at app layer); preview is allowed (PRD §6)
 
 ### Mutation pattern
 
@@ -80,6 +99,47 @@ Keep this sequence intact when adding new actions — RLS + trigger + history + 
 
 Bucket `contract-files` is private, 50MB cap, PDF mime-type enforced at the bucket level. Uploads go directly from the browser via `supabase.storage.from('contract-files').upload(path)`, then a server action `registerUploadedFile` creates the `contract_files` row, decrements old rows' `is_latest`, and writes the activity log. The partial unique index `idx_files_one_latest` guarantees at most one `is_latest=TRUE` row per contract.
 
+**Storage key character set:** keys must be ASCII (Supabase Storage validation rejects Korean filenames). Use a UUID-based path; preserve the human-readable name in `contract_files.original_filename`:
+```ts
+const path = `${contractId}/${Date.now()}-${crypto.randomUUID()}.pdf`;
+```
+
+PDF preview uses `react-pdf` (pdfjs-dist) with worker loaded from `unpkg.com` matching the installed pdfjs version. Inline canvas rendering avoids Chrome's "Download PDFs" setting.
+
+### Region map (대시보드)
+
+Drill-down choropleth on `/dashboard`. **Three view levels** (2-tier or 3-tier depending on region):
+- `nation`: 17 시도 폴리곤. Click → `sido` view.
+- `sido`: 시도 내 시·군·구 폴리곤. **일반구 보유 시(수원·성남·…·창원)는 `topojson.merge`로 통합 시 폴리곤 1개로 묶어 표시** — 클릭하면 `si` view로 drill. 일반구 없는 시·군(가평군 등)은 leaf 패널.
+- `si`: 한 시 안의 일반구들 (3-tier drill 시에만 도달). 모두 leaf.
+
+Data flow:
+- DB: `local_governments.geo_code` (5-digit text) is the join key from LG ↔ topojson polygon. Seed in `document/seed_local_governments_geo_code.sql`.
+- RPC: `get_region_stats` returns `LgStat[]` (per-LG counts per status, security-invoker so RLS applies). Type in `lib/map/types.ts`.
+- Static asset: `public/geo/korea-admin.topo.json` (~870KB) — `objects.sido` + `objects.sigungu`, each feature has `properties: { code, name }`.
+- Client: `components/map/region-map.tsx` (`d3-geo` + `topojson-client`) renders SVG; breadcrumb (`region-breadcrumb.tsx`) + side panel (`region-leaf-panel.tsx`).
+- Pure helpers (no React, reusable): `lib/map/derive.ts`, `match.ts`, `rate.ts`.
+
+**Coverage rate** (the value driving the choropleth color and `XX%` label) is defined in `lib/map/rate.ts`:
+```
+coverage = (지역 내 'completed' 1건 이상 보유 LG 수) / (지역 내 전체 LG 수)
+```
+Single function `coverageRate(lgs)`. Swap point if the formula changes.
+
+**TopoJSON manual property patches** (do NOT regenerate from raw kostat without re-applying):
+- polygon `22320` `군위군` — original kostat code was `37310` (경상북도). 2023-07 transferred to 대구; we move the polygon into the `22` (대구) prefix so 대구 sido drill-down includes 군위군. DB `geo_code` matches `22320`.
+- polygon `23030` name `미추홀구` — original was `남구`. 2018-07 인천 남구 → 미추홀구 개명.
+- 부천시 — kostat already has 1 통합 폴리곤 `31050`; DB has 3 LG rows (옛 일반구 원미·소사·오정) all sharing `geo_code='31050'`. Don't try to "fix" by adding sub-polygons.
+
+The seed file reflects the patched codes. If you re-run mapshaper on raw kostat input, re-apply these property edits before overwriting `korea-admin.topo.json`.
+
+**Form ↔ map parity**: `app/(app)/contracts/new/form.tsx` reads `local_governments` directly (sido + leaf 시군구 dropdown). The map joins through the same table via `geo_code`. Both are guaranteed consistent — when adding a new LG, also seed `geo_code`.
+
+**Naming gotchas** (`lib/map/derive.ts`):
+- `SIDO_BY_GEO_CODE` uses post-rename names (`강원특별자치도`, `전북특별자치도`) — must match DB `local_governments.sido` exactly.
+- `PARENT_SI_PREFIXES` lists 시s that have 일반구 children. Polygon name `'수원시장안구'` (no space) is split into `parent_si='수원시'`, `leaf='장안구'`. **부천시** stays in the list as documentation but its polygon no longer carries the prefix.
+- The proxy matcher MUST exclude `geo/` and `*.json`, otherwise the topojson goes through Edge runtime on every dashboard load.
+
 ### Layout conventions
 
 - Pages are async Server Components. Side-effect mutations live in colocated `actions.ts` files.
@@ -87,6 +147,7 @@ Bucket `contract-files` is private, 50MB cap, PDF mime-type enforced at the buck
 - Date inputs handle nullable dates by passing `''` as the empty value, converted to `null` in the action.
 - Status enum values come from `Database['public']['Enums']['contract_status']`. Do not redefine them as string literals.
 - All visible labels use the maps in `lib/utils.ts` (`STATUS_LABEL`, `ROLE_LABEL`, etc.) — keep these in sync with the DB ENUMs.
+- Reusable success popup: `app/components/success-modal.tsx`. Use this for write-action completion (signed-in users want explicit acknowledgement before navigating away).
 
 ### Cron / batch endpoints
 
