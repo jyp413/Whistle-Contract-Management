@@ -1,11 +1,14 @@
 ﻿-- Generated. Updates local_governments.geo_code from southkorea-maps kostat 2018.
 -- Multiple LG rows may share the same geo_code (e.g. 부천시 일반구).
 -- Manual overrides for post-2018 admin reorganizations:
---   인천 미추홀구  ← 2018-07 renamed from "인천광역시 남구" (geo polygon 23030)
---   대구 군위군    ← 2023-07 transferred from 경상북도 to 대구광역시 (geo polygon 37310)
+--   인천 미추홀구  ← 2018-07 renamed from "인천광역시 남구"
+--                    (polygon 23030; korea-admin.topo.json 의 name 도 '미추홀구' 로 패치)
+--   대구 군위군    ← 2023-07 transferred from 경상북도 to 대구광역시
+--                    (원본 polygon 37310; korea-admin.topo.json 에서 code 22320 으로
+--                     이동시켜 대구 sido prefix 22 로 매칭되게 함)
 begin;
 update public.local_governments set geo_code='23030' where full_name='인천광역시 미추홀구';
-update public.local_governments set geo_code='37310' where full_name='대구광역시 군위군';
+update public.local_governments set geo_code='22320' where full_name='대구광역시 군위군';
 update public.local_governments set geo_code='11010' where full_name='서울특별시 종로구';
 update public.local_governments set geo_code='11020' where full_name='서울특별시 중구';
 update public.local_governments set geo_code='11030' where full_name='서울특별시 용산구';
