@@ -41,7 +41,7 @@ export default async function DashboardPage({
     { data: kpiRows },
     { data: expiring },
     { data: recent },
-    { data: regionRows },
+    { data: regionRows, error: regionErr },
   ] = await Promise.all([
     supabase.rpc('get_kpi_summary'),
     supabase
@@ -61,6 +61,9 @@ export default async function DashboardPage({
     supabase.rpc('get_region_stats'),
   ]);
 
+  if (regionErr) {
+    console.error('[dashboard] get_region_stats failed:', regionErr.message);
+  }
   const regionStats: LgStat[] = (regionRows ?? []) as LgStat[];
 
   const kpi = kpiRows?.[0] ?? {
