@@ -81,6 +81,12 @@ export default async function ContractDetailPage({
 
   return (
     <div className="space-y-5">
+      <Link
+        href="/contracts"
+        className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900"
+      >
+        <span aria-hidden>←</span> 계약 목록
+      </Link>
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <p className="text-xs text-slate-500">
