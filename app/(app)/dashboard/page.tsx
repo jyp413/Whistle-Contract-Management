@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import {
-  STATUS_LABEL,
   fmtDate,
   fmtDateTime,
   daysUntil,
   effectiveExpiry,
 } from '@/lib/utils';
+import { RegionMapCard } from '@/components/map/region-map-card';
+import type { LgStat } from '@/lib/map/types';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,24 +37,31 @@ export default async function DashboardPage({
   const sp = await searchParams;
   const supabase = await createClient();
 
-  const [{ data: kpiRows }, { data: expiring }, { data: recent }] =
-    await Promise.all([
-      supabase.rpc('get_kpi_summary'),
-      supabase
-        .from('contracts')
-        .select(
-          'id, status, expiry_date, extended_expiry_date, local_governments(full_name, sigungu)',
-        )
-        .eq('status', 'completed')
-        .is('deleted_at', null)
-        .order('expiry_date', { ascending: true, nullsFirst: false })
-        .limit(50),
-      supabase
-        .from('activity_logs')
-        .select('id, event_type, occurred_at, target_type, target_id')
-        .order('occurred_at', { ascending: false })
-        .limit(8),
-    ]);
+  const [
+    { data: kpiRows },
+    { data: expiring },
+    { data: recent },
+    { data: regionRows },
+  ] = await Promise.all([
+    supabase.rpc('get_kpi_summary'),
+    supabase
+      .from('contracts')
+      .select(
+        'id, status, expiry_date, extended_expiry_date, local_governments(full_name, sigungu)',
+      )
+      .eq('status', 'completed')
+      .is('deleted_at', null)
+      .order('expiry_date', { ascending: true, nullsFirst: false })
+      .limit(50),
+    supabase
+      .from('activity_logs')
+      .select('id, event_type, occurred_at, target_type, target_id')
+      .order('occurred_at', { ascending: false })
+      .limit(8),
+    supabase.rpc('get_region_stats'),
+  ]);
+
+  const regionStats: LgStat[] = (regionRows ?? []) as LgStat[];
 
   const kpi = kpiRows?.[0] ?? {
     completed_count: 0,
@@ -108,6 +116,8 @@ export default async function DashboardPage({
           href="/contracts?status=updating"
         />
       </div>
+
+      <RegionMapCard stats={regionStats} />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-slate-200">

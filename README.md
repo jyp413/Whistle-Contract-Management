@@ -71,7 +71,12 @@ npm run dev
 - [x] **엑셀 내보내기** (`GET /api/export/contracts.xlsx`) — 현재 필터 그대로 반영, ExcelJS
 - [x] **ZIP 일괄 다운로드** (`GET /api/export/contracts.zip`) — 옵션 A(최신만) / B(전체버전) / C(상태별), JSZip + Storage download
 - [x] **만료 자동종료 Cron** (`GET /api/cron/terminate-expired`) — Vercel Cron 매일 KST 01:00 (UTC 16:00) 실행, `CRON_SECRET` 헤더 인증
+- [x] **지자체별 계약현황 인터랙티브 지도** (대시보드) — 전국 → 시·도 → 시(일반구) → 구 드릴다운, 지자체 커버리지 코로플레스, leaf 정보 패널
 - [ ] 만료 60/30/7일 이메일 알림 (Nice-to-Have)
+
+## 외부 데이터 사용
+
+- **`public/geo/korea-admin.topo.json`**: [southkorea/southkorea-maps](https://github.com/southkorea/southkorea-maps) (MIT) — KOSTAT 2018 시·도 + 시·군·구 경계, mapshaper로 단순화. 원본 출처는 통계청 행정구역 데이터.
 
 ## 운영 환경 변수
 
