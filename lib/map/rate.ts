@@ -15,25 +15,23 @@ export function partyTint(s: Pick<LgStat, 'completed_monoplatform' | 'completed_
   return 'none';
 }
 
-// 비율(rate)에 따른 농도 버킷 — Tailwind 색상 단계 7개.
+// 비율(rate)에 따른 농도 버킷 — Tailwind 색상 단계 6개 (낮음 → 높음).
 const ORANGE_BUCKETS: Array<{ max: number; cls: string }> = [
-  { max: 0.15, cls: 'fill-orange-100' },
-  { max: 0.3, cls: 'fill-orange-200' },
-  { max: 0.45, cls: 'fill-orange-300' },
-  { max: 0.6, cls: 'fill-orange-400' },
-  { max: 0.75, cls: 'fill-orange-500' },
-  { max: 0.9, cls: 'fill-orange-600' },
-  { max: 1.01, cls: 'fill-orange-700' },
+  { max: 0.17, cls: 'fill-orange-100' },
+  { max: 0.34, cls: 'fill-orange-200' },
+  { max: 0.5, cls: 'fill-orange-300' },
+  { max: 0.67, cls: 'fill-orange-400' },
+  { max: 0.84, cls: 'fill-orange-500' },
+  { max: 1.01, cls: 'fill-orange-600' },
 ];
 
 const SKY_BUCKETS: Array<{ max: number; cls: string }> = [
-  { max: 0.15, cls: 'fill-sky-100' },
-  { max: 0.3, cls: 'fill-sky-200' },
-  { max: 0.45, cls: 'fill-sky-300' },
-  { max: 0.6, cls: 'fill-sky-400' },
-  { max: 0.75, cls: 'fill-sky-500' },
-  { max: 0.9, cls: 'fill-sky-600' },
-  { max: 1.01, cls: 'fill-sky-700' },
+  { max: 0.17, cls: 'fill-sky-100' },
+  { max: 0.34, cls: 'fill-sky-200' },
+  { max: 0.5, cls: 'fill-sky-300' },
+  { max: 0.67, cls: 'fill-sky-400' },
+  { max: 0.84, cls: 'fill-sky-500' },
+  { max: 1.01, cls: 'fill-sky-600' },
 ];
 
 function pickBucket(rate: number, buckets: typeof ORANGE_BUCKETS): string {

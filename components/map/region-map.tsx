@@ -25,6 +25,7 @@ import {
 } from '@/lib/map/match';
 import { RegionLeafPanel, type LeafSelection } from './region-leaf-panel';
 import { RegionNationPanel } from './region-nation-panel';
+import { RegionSidoPanel } from './region-sido-panel';
 import { RegionBreadcrumb } from './region-breadcrumb';
 
 type GeoProps = { name: string; code: string };
@@ -259,6 +260,11 @@ export function RegionMap({ stats }: Props) {
 
       {view.level === 'nation' && !leaf ? (
         <RegionNationPanel lgs={stats} />
+      ) : view.level === 'sido' && !leaf ? (
+        <RegionSidoPanel
+          sido={view.sido}
+          lgs={stats.filter((s) => s.sido === view.sido)}
+        />
       ) : (
         <RegionLeafPanel
           selection={leaf}
@@ -271,8 +277,8 @@ export function RegionMap({ stats }: Props) {
 }
 
 function Legend() {
-  const orangeShades = ['fill-orange-100', 'fill-orange-200', 'fill-orange-300', 'fill-orange-400', 'fill-orange-500', 'fill-orange-600', 'fill-orange-700'];
-  const skyShades = ['fill-sky-100', 'fill-sky-200', 'fill-sky-300', 'fill-sky-400', 'fill-sky-500', 'fill-sky-600', 'fill-sky-700'];
+  const orangeShades = ['fill-orange-100', 'fill-orange-200', 'fill-orange-300', 'fill-orange-400', 'fill-orange-500', 'fill-orange-600'];
+  const skyShades = ['fill-sky-100', 'fill-sky-200', 'fill-sky-300', 'fill-sky-400', 'fill-sky-500', 'fill-sky-600'];
   return (
     <div className="mt-3 space-y-1.5 text-[11px] text-slate-600">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
