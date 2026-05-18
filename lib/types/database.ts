@@ -497,6 +497,10 @@ export type Database = {
           updating: number
         }[]
       }
+      soft_delete_contract_file: {
+        Args: { p_file_id: string; p_contract_id: string }
+        Returns: Json
+      }
       terminate_expired_contracts: {
         Args: { p_actor: string }
         Returns: number

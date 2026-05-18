@@ -603,8 +603,11 @@ export async function updateContractMeta(input: {
 }
 
 /**
- * 파일 삭제: DB soft (deleted_at + is_latest=false) + Storage hard (storage.remove).
- * 삭제 행이 latest 였으면, 같은 contract의 가장 최근 살아있는 행을 latest로 승격.
+ * 파일 삭제: SECURITY DEFINER RPC `soft_delete_contract_file` 위임 (RLS 우회) + Storage hard remove.
+ * - RPC가 권한 검증, deleted_at/is_latest 갱신, 다음 latest 자동 승격까지 처리
+ * - 액션은 Storage 객체 제거 + activity_logs 기록 담당
+ * - 직접 .update() 사용 시 contract_files의 SELECT 정책(deleted_at IS NULL)이 post-update 검사에서
+ *   새 행을 막아 "new row violates row-level security policy" 에러 발생 → RPC 패턴 필요 (CLAUDE.md §RLS-filtered RETURNING trap)
  */
 export async function deleteContractFile(input: {
   fileId: string;
@@ -613,51 +616,43 @@ export async function deleteContractFile(input: {
   const me = await requireWriter();
   const supabase = await createClient();
 
-  const { data: row, error: e1 } = await supabase
-    .from('contract_files')
-    .select('id, contract_id, storage_path, original_filename, version_no, is_latest, deleted_at')
-    .eq('id', input.fileId)
-    .single();
+  const { data: rpcData, error: rpcErr } = await supabase.rpc(
+    'soft_delete_contract_file',
+    {
+      p_file_id: input.fileId,
+      p_contract_id: input.contractId,
+    },
+  );
 
-  if (e1 || !row) return { error: '파일을 찾을 수 없습니다.' };
-  if (row.contract_id !== input.contractId) return { error: '계약 ID 불일치.' };
-  if (row.deleted_at) return { error: '이미 삭제된 파일입니다.' };
+  if (rpcErr) return { error: rpcErr.message };
 
+  if (
+    rpcData &&
+    typeof rpcData === 'object' &&
+    !Array.isArray(rpcData) &&
+    'error' in rpcData &&
+    typeof (rpcData as { error?: unknown }).error === 'string'
+  ) {
+    return { error: (rpcData as { error: string }).error };
+  }
+
+  const result = rpcData as {
+    ok?: boolean;
+    storage_path?: string | null;
+    original_filename?: string | null;
+    version_no?: number | null;
+    was_latest?: boolean | null;
+    promoted_id?: string | null;
+  } | null;
+
+  if (!result?.ok || !result.storage_path) {
+    return { error: '삭제 처리에 실패했습니다.' };
+  }
+
+  // Storage hard delete (실패해도 DB soft delete는 이미 완료 — orphan 가능, activity_log에 기록)
   const { error: storageErr } = await supabase.storage
     .from('contract-files')
-    .remove([row.storage_path]);
-
-  const wasLatest = row.is_latest;
-
-  const { error: e2, count } = await supabase
-    .from('contract_files')
-    .update(
-      { deleted_at: new Date().toISOString(), is_latest: false },
-      { count: 'exact' },
-    )
-    .eq('id', input.fileId)
-    .is('deleted_at', null);
-
-  if (e2) return { error: e2.message };
-  if (!count) return { error: '삭제 처리에 실패했습니다.' };
-
-  if (wasLatest) {
-    const { data: candidate } = await supabase
-      .from('contract_files')
-      .select('id')
-      .eq('contract_id', input.contractId)
-      .is('deleted_at', null)
-      .neq('id', input.fileId)
-      .order('uploaded_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (candidate) {
-      await supabase
-        .from('contract_files')
-        .update({ is_latest: true })
-        .eq('id', candidate.id);
-    }
-  }
+    .remove([result.storage_path]);
 
   await supabase.from('activity_logs').insert({
     actor_id: me.id,
@@ -665,13 +660,16 @@ export async function deleteContractFile(input: {
     target_type: 'file',
     target_id: input.fileId,
     before_value: {
-      contract_id: row.contract_id,
-      storage_path: row.storage_path,
-      original_filename: row.original_filename,
-      version_no: row.version_no,
-      is_latest: row.is_latest,
+      contract_id: input.contractId,
+      storage_path: result.storage_path,
+      original_filename: result.original_filename,
+      version_no: result.version_no,
+      is_latest: result.was_latest,
     },
-    after_value: { storage_removed: !storageErr },
+    after_value: {
+      storage_removed: !storageErr,
+      promoted_file_id: result.promoted_id ?? null,
+    },
   });
 
   revalidatePath(`/contracts/${input.contractId}`);
