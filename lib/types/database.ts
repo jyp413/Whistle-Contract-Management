@@ -382,6 +382,10 @@ export type Database = {
       local_governments: {
         Row: {
           classification: Database["public"]["Enums"]["lg_class"]
+          contact_department: string | null
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
           created_at: string
           deleted_at: string | null
           full_name: string
@@ -394,6 +398,10 @@ export type Database = {
         }
         Insert: {
           classification: Database["public"]["Enums"]["lg_class"]
+          contact_department?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
           full_name: string
@@ -406,6 +414,10 @@ export type Database = {
         }
         Update: {
           classification?: Database["public"]["Enums"]["lg_class"]
+          contact_department?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
           full_name?: string

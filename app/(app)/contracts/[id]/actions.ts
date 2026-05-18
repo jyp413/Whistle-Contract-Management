@@ -603,6 +603,66 @@ export async function updateContractMeta(input: {
 }
 
 /**
+ * 지자체 담당자 정보 수정 (department / name / phone / email).
+ * 같은 LG의 모든 계약이 동일 담당자를 공유.
+ * 권한: writer+ (master / accounting).
+ * activity_logs target_type='local_government', event_type='contract_update' (재사용).
+ */
+export async function updateLGContact(input: {
+  contractId: string;
+  localGovernmentId: string;
+  contact_department: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+}): Promise<Result<{ ok: true }>> {
+  const me = await requireWriter();
+  const supabase = await createClient();
+
+  // 이메일 가벼운 형식 검증
+  if (input.contact_email && !input.contact_email.includes('@')) {
+    return { error: '이메일 형식이 올바르지 않습니다.' };
+  }
+
+  const { data: before } = await supabase
+    .from('local_governments')
+    .select('contact_department, contact_name, contact_phone, contact_email')
+    .eq('id', input.localGovernmentId)
+    .is('deleted_at', null)
+    .single();
+
+  const { error } = await supabase
+    .from('local_governments')
+    .update({
+      contact_department: input.contact_department,
+      contact_name: input.contact_name,
+      contact_phone: input.contact_phone,
+      contact_email: input.contact_email,
+    })
+    .eq('id', input.localGovernmentId)
+    .is('deleted_at', null);
+
+  if (error) return { error: error.message };
+
+  await supabase.from('activity_logs').insert({
+    actor_id: me.id,
+    event_type: 'contract_update',
+    target_type: 'local_government',
+    target_id: input.localGovernmentId,
+    before_value: before ?? {},
+    after_value: {
+      contact_department: input.contact_department,
+      contact_name: input.contact_name,
+      contact_phone: input.contact_phone,
+      contact_email: input.contact_email,
+    },
+  });
+
+  revalidatePath(`/contracts/${input.contractId}`);
+  return { ok: true };
+}
+
+/**
  * 파일 삭제: SECURITY DEFINER RPC `soft_delete_contract_file` 위임 (RLS 우회) + Storage hard remove.
  * - RPC가 권한 검증, deleted_at/is_latest 갱신, 다음 latest 자동 승격까지 처리
  * - 액션은 Storage 객체 제거 + activity_logs 기록 담당

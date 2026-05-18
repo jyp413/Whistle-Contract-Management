@@ -19,6 +19,7 @@ import ContractActions from './contract-actions';
 import FilePreviewButton from './file-preview';
 import EditMetaButton from './edit-meta-button';
 import FileDeleteButton from './file-delete-button';
+import LGContactCard from './lg-contact-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,7 +44,7 @@ export default async function ContractDetailPage({
   const { data: contract, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification, contact_department, contact_name, contact_phone, contact_email)',
     )
     .eq('id', id)
     .is('deleted_at', null)
@@ -178,7 +179,8 @@ export default async function ContractDetailPage({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <section className="lg:col-span-2 bg-white border border-slate-200 rounded-lg p-6">
+        <div className="lg:col-span-2 space-y-5">
+        <section className="bg-white border border-slate-200 rounded-lg p-6">
           <h2 className="text-sm font-semibold text-slate-900 mb-4">
             계약 정보
           </h2>
@@ -211,6 +213,20 @@ export default async function ContractDetailPage({
             {fmtDateTime(contract.updated_at)}
           </p>
         </section>
+
+        <LGContactCard
+          contractId={contract.id}
+          localGovernmentId={contract.local_government_id}
+          lgName={contract.local_governments?.full_name ?? ''}
+          initial={{
+            contact_department: contract.local_governments?.contact_department ?? null,
+            contact_name: contract.local_governments?.contact_name ?? null,
+            contact_phone: contract.local_governments?.contact_phone ?? null,
+            contact_email: contract.local_governments?.contact_email ?? null,
+          }}
+          canEdit={writer}
+        />
+        </div>
 
         {writer ? (
           <UploadCard
