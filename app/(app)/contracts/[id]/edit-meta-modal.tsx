@@ -174,7 +174,12 @@ export default function EditMetaModal({
           )}
 
           {!expiryIsPast && (
-            <DateField label="연장 후 만료일 (선택)" value={extendedExpiry} onChange={setExtendedExpiry} />
+            <div>
+              <DateField label="연장 후 만료일 (선택)" value={extendedExpiry} onChange={setExtendedExpiry} />
+              <p className="text-[11px] text-slate-500 mt-1">
+                ⓘ 일반 연장은 상세 화면의 <b>[기간 연장]</b> 버튼을 사용하세요 (연장 이력이 함께 기록됩니다). 이 필드는 잘못 입력된 값을 정정할 때만 사용합니다.
+              </p>
+            </div>
           )}
 
           <div>
