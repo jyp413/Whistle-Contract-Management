@@ -8,6 +8,7 @@ import {
 } from '@/lib/utils';
 import { RegionMapCard } from '@/components/map/region-map-card';
 import type { LgStat } from '@/lib/map/types';
+import SearchBox from './search-box';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +97,8 @@ export default async function DashboardPage({
           href="/contracts?status=updating"
         />
       </div>
+
+      <SearchBox />
 
       <RegionMapCard stats={regionStats} />
 
