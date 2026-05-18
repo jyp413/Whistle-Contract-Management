@@ -33,7 +33,11 @@ export default function NewContractForm({
   const [signedDate, setSignedDate] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
+  const [extendedExpiryDate, setExtendedExpiryDate] = useState('');
   const [memo, setMemo] = useState('');
+
+  const today = new Date().toISOString().slice(0, 10);
+  const expiryIsPast = !!expiryDate && expiryDate < today;
   const [successInfo, setSuccessInfo] = useState<
     | { lgName: string }
     | null
@@ -65,12 +69,25 @@ export default function NewContractForm({
       setError('지자체를 선택하세요.');
       return;
     }
+    if (expiryIsPast && !extendedExpiryDate) {
+      setError('만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하세요.');
+      return;
+    }
+    if (extendedExpiryDate && expiryDate && extendedExpiryDate <= expiryDate) {
+      setError('연장 후 만료일은 기존 만료일 이후여야 합니다.');
+      return;
+    }
+    if (expiryIsPast && extendedExpiryDate && extendedExpiryDate < today) {
+      setError('연장 후 만료일도 이미 지났습니다. 현재 유효한 만료일을 입력하세요.');
+      return;
+    }
     startTransition(async () => {
       const result = await createContractAction({
         local_government_id: lgId,
         signed_date: signedDate || null,
         effective_date: effectiveDate || null,
         expiry_date: expiryDate || null,
+        extended_expiry_date: extendedExpiryDate || null,
         memo: memo || null,
       });
       if (result.error) {
@@ -159,6 +176,27 @@ export default function NewContractForm({
           onChange={setExpiryDate}
         />
       </div>
+
+      {expiryIsPast && (
+        <div className="rounded border border-amber-300 bg-amber-50 p-3 space-y-3">
+          <p className="text-xs text-amber-800">
+            ⚠️ 입력하신 계약만료일이 이미 지났습니다. 이 계약이 연장되어 현재도 유효하다면, <strong>연장 후 만료일</strong>을 함께 입력하세요.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-amber-900 mb-1">
+              연장 후 만료일 *
+            </label>
+            <input
+              type="date"
+              value={extendedExpiryDate}
+              onChange={(e) => setExtendedExpiryDate(e.target.value)}
+              min={today}
+              required
+              className="w-full sm:w-1/3 px-3 py-2 border border-amber-300 rounded text-sm tabular-nums bg-white"
+            />
+          </div>
+        </div>
+      )}
 
       <div>
         <label className="block text-xs font-medium text-slate-700 mb-1">비고</label>
