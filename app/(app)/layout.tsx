@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import { requireUser } from '@/lib/auth';
 import { ROLE_LABEL } from '@/lib/utils';
@@ -18,9 +19,18 @@ export default async function AppLayout({
           <div className="flex items-center gap-6">
             <Link
               href="/dashboard"
-              className="font-bold text-slate-900 text-sm"
+              className="flex items-center gap-2 font-bold text-slate-900 text-sm"
+              aria-label="휘슬 — 주차단속 계약관리 홈으로"
             >
-              주차단속 계약관리
+              <Image
+                src="/logo-whistle.png"
+                alt=""
+                width={89}
+                height={48}
+                priority
+                className="h-7 w-auto"
+              />
+              <span>주차단속 계약관리</span>
             </Link>
             <nav className="flex items-center gap-1 text-sm">
               <Link

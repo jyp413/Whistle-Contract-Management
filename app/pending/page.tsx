@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import { redirect } from 'next/navigation';
 import { getCurrentUser } from '@/lib/auth';
 
@@ -12,6 +13,14 @@ export default async function PendingPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md bg-white rounded-lg shadow-sm border p-8 text-center">
+        <Image
+          src="/logo-whistle.png"
+          alt="휘슬"
+          width={89}
+          height={48}
+          priority
+          className="mx-auto mb-4 h-10 w-auto"
+        />
         <h1 className="text-xl font-bold text-slate-900">승인 대기 중</h1>
         <p className="text-sm text-slate-600 mt-3 leading-relaxed">
           가입이 완료되었습니다.

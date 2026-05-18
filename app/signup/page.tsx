@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import Link from 'next/link';
 import SignupForm from './signup-form';
 
@@ -5,6 +6,14 @@ export default function SignupPage() {
   return (
     <div className="min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-sm bg-white rounded-lg shadow-sm border p-8">
+        <Image
+          src="/logo-whistle.png"
+          alt="휘슬"
+          width={89}
+          height={48}
+          priority
+          className="mb-4 h-10 w-auto"
+        />
         <Link
           href="/login"
           className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900 mb-3"
