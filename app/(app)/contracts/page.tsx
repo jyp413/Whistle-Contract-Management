@@ -46,10 +46,36 @@ const PARTY_FILTERS: { key: Party | 'all'; label: string }[] = [
   { key: 'imcity', label: '아이엠시티' },
 ];
 
+type SortKey =
+  | 'lg_name'
+  | 'type'
+  | 'party'
+  | 'status'
+  | 'signed_date'
+  | 'effective_expiry'
+  | 'updated_at';
+
+const SORT_KEYS: ReadonlyArray<SortKey> = [
+  'lg_name',
+  'type',
+  'party',
+  'status',
+  'signed_date',
+  'effective_expiry',
+  'updated_at',
+];
+
 export default async function ContractsListPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string; type?: string; party?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    q?: string;
+    type?: string;
+    party?: string;
+    sort?: string;
+    dir?: string;
+  }>;
 }) {
   const me = await requireUser();
   const sp = await searchParams;
@@ -57,6 +83,10 @@ export default async function ContractsListPage({
   const type = (sp.type ?? 'all') as Ctype | 'all';
   const party = (sp.party ?? 'all') as Party | 'all';
   const q = (sp.q ?? '').trim();
+  const sort: SortKey = (SORT_KEYS as readonly string[]).includes(sp.sort ?? '')
+    ? (sp.sort as SortKey)
+    : 'lg_name';
+  const dir: 'asc' | 'desc' = sp.dir === 'desc' ? 'desc' : 'asc';
 
   const supabase = await createClient();
   let query = supabase
@@ -90,6 +120,46 @@ export default async function ContractsListPage({
     );
   }
 
+  // 클라이언트 측 정렬 (Server Component이지만 응답 받은 후 정렬)
+  const sortBy = (a: typeof filtered[number], b: typeof filtered[number]): number => {
+    let av: string | number | null = null;
+    let bv: string | number | null = null;
+    switch (sort) {
+      case 'lg_name':
+        av = a.local_governments?.full_name ?? '';
+        bv = b.local_governments?.full_name ?? '';
+        break;
+      case 'type':
+        av = a.contract_type;
+        bv = b.contract_type;
+        break;
+      case 'party':
+        av = a.contracting_party;
+        bv = b.contracting_party;
+        break;
+      case 'status':
+        av = a.status;
+        bv = b.status;
+        break;
+      case 'signed_date':
+        av = a.signed_date ?? '';
+        bv = b.signed_date ?? '';
+        break;
+      case 'effective_expiry':
+        av = effectiveExpiry(a) ?? '';
+        bv = effectiveExpiry(b) ?? '';
+        break;
+      case 'updated_at':
+        av = a.updated_at;
+        bv = b.updated_at;
+        break;
+    }
+    if (av === bv) return 0;
+    const cmp = (av ?? '') < (bv ?? '') ? -1 : 1;
+    return dir === 'asc' ? cmp : -cmp;
+  };
+  filtered = [...filtered].sort(sortBy);
+
   // 각 계약의 최신 파일을 한 번에 조회 → contract_id → file 매핑
   const contractIds = filtered.map((c) => c.id);
   const fileMap = new Map<
@@ -119,11 +189,23 @@ export default async function ContractsListPage({
     if (type !== 'all') params.type = type;
     if (party !== 'all') params.party = party;
     if (q) params.q = q;
+    if (sort !== 'lg_name') params.sort = sort;
+    if (dir !== 'asc') params.dir = dir;
     for (const [k, v] of Object.entries(overrides)) {
       if (v === 'all' || !v) delete params[k];
       else params[k] = v;
     }
     return new URLSearchParams(params).toString();
+  };
+
+  const sortLink = (key: SortKey): string => {
+    const nextDir = sort === key && dir === 'asc' ? 'desc' : 'asc';
+    return `/contracts?${baseParams({ sort: key, dir: nextDir })}`;
+  };
+
+  const sortArrow = (key: SortKey): string => {
+    if (sort !== key) return '';
+    return dir === 'asc' ? ' ▲' : ' ▼';
   };
 
   return (
@@ -238,33 +320,50 @@ export default async function ContractsListPage({
         <table className="w-full text-sm">
           <thead>
             <tr className="text-xs text-slate-500 bg-slate-50">
-              <th className="text-left px-4 py-2 font-medium">지자체</th>
-              <th className="text-left px-4 py-2 font-medium">유형</th>
-              <th className="text-left px-4 py-2 font-medium">주체</th>
-              <th className="text-left px-4 py-2 font-medium">상태</th>
-              <th className="text-left px-4 py-2 font-medium">체결일</th>
-              <th className="text-left px-4 py-2 font-medium">실효 만료일</th>
-              <th className="text-left px-4 py-2 font-medium">최종 수정</th>
-              <th className="text-right px-4 py-2 font-medium">동작</th>
+              <th className="text-left px-4 py-2 font-medium w-12">No</th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('lg_name')} className="hover:text-slate-900">지자체{sortArrow('lg_name')}</Link>
+              </th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('type')} className="hover:text-slate-900">유형{sortArrow('type')}</Link>
+              </th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('party')} className="hover:text-slate-900">주체{sortArrow('party')}</Link>
+              </th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('status')} className="hover:text-slate-900">상태{sortArrow('status')}</Link>
+              </th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('signed_date')} className="hover:text-slate-900">체결일{sortArrow('signed_date')}</Link>
+              </th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('effective_expiry')} className="hover:text-slate-900">실효 만료일{sortArrow('effective_expiry')}</Link>
+              </th>
+              <th className="text-left px-4 py-2 font-medium">
+                <Link href={sortLink('updated_at')} className="hover:text-slate-900">최종 수정{sortArrow('updated_at')}</Link>
+              </th>
+              <th className="text-right px-4 py-2 font-medium">수정</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-slate-400">
+                <td colSpan={9} className="px-4 py-10 text-center text-slate-400">
                   계약이 없습니다.
                 </td>
               </tr>
             )}
             {filtered.map((c, idx) => {
               const prev = idx > 0 ? filtered[idx - 1] : null;
-              const sameLg = prev && prev.local_government_id === c.local_government_id;
+              // 지자체 그루핑 표시는 lg_name 정렬일 때만 의미가 있음
+              const sameLg = sort === 'lg_name' && prev && prev.local_government_id === c.local_government_id;
               const isSupplement = !!c.master_contract_id;
               return (
                 <tr
                   key={c.id}
                   className={`border-t border-slate-100 hover:bg-slate-50 ${sameLg ? 'bg-slate-50/50' : ''}`}
                 >
+                  <td className="px-4 py-2 text-slate-500 tabular-nums">{idx + 1}</td>
                   <td className="px-4 py-2">
                     <Link
                       href={`/contracts/${c.id}`}
