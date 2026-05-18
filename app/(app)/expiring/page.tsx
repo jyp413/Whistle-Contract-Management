@@ -35,7 +35,7 @@ export default async function ExpiringPage({
   const { data: contracts, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, contract_type, contracting_party, master_contract_id, expiry_date, extended_expiry_date, updated_at, local_governments(full_name)',
+      'id, status, contract_type, contracting_party, master_contract_id, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, updated_at, local_governments(full_name)',
     )
     .eq('status', 'completed')
     .is('deleted_at', null)

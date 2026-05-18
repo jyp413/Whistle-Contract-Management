@@ -36,6 +36,9 @@ export default function EditMetaModal({
     contract_type: Ctype;
     contracting_party: Party;
     master_contract_id: string | null;
+    auto_renewal: boolean;
+    auto_renewal_period_months: number | null;
+    auto_renewal_end_date: string | null;
   };
 }) {
   const router = useRouter();
@@ -51,10 +54,18 @@ export default function EditMetaModal({
   const [party, setParty] = useState<Party>(contract.contracting_party);
   const [masterId, setMasterId] = useState<string>(contract.master_contract_id ?? '');
   const [masterOptions, setMasterOptions] = useState<MasterOption[]>([]);
+  const [autoRenewal, setAutoRenewal] = useState(contract.auto_renewal);
+  const [autoRenewalMonths, setAutoRenewalMonths] = useState<string>(
+    contract.auto_renewal_period_months?.toString() ?? '12',
+  );
+  const [autoRenewalEndDate, setAutoRenewalEndDate] = useState(
+    contract.auto_renewal_end_date ?? '',
+  );
 
   const today = new Date().toISOString().slice(0, 10);
   const isSupplement = contractType !== 'parking_enforcement';
   const expiryIsPast = !!expiryDate && expiryDate < today;
+  const expiryPastBlocking = expiryIsPast && !autoRenewal;
 
   useEffect(() => {
     if (!open || !isSupplement) {
@@ -81,8 +92,17 @@ export default function EditMetaModal({
       setError('부속 계약은 메인 계약을 선택해야 합니다.');
       return;
     }
-    if (expiryIsPast && !extendedExpiry) {
-      setError('만료일이 지났습니다. 연장 후 만료일을 함께 입력하세요.');
+    if (expiryPastBlocking && !extendedExpiry) {
+      setError('만료일이 지났습니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.');
+      return;
+    }
+    const periodMonths = autoRenewal ? parseInt(autoRenewalMonths, 10) : null;
+    if (autoRenewal && (!periodMonths || periodMonths < 1)) {
+      setError('자동연장 주기(개월)를 1 이상으로 입력하세요.');
+      return;
+    }
+    if (autoRenewal && autoRenewalEndDate && expiryDate && autoRenewalEndDate < expiryDate) {
+      setError('자동연장 종료일은 계약만료일 이후여야 합니다.');
       return;
     }
     startTransition(async () => {
@@ -97,6 +117,9 @@ export default function EditMetaModal({
         contract_type: contractType,
         contracting_party: party,
         master_contract_id: isSupplement ? masterId : null,
+        auto_renewal: autoRenewal,
+        auto_renewal_period_months: periodMonths,
+        auto_renewal_end_date: autoRenewal ? (autoRenewalEndDate || null) : null,
       });
       if (result.error) {
         setError(result.error);
@@ -166,14 +189,55 @@ export default function EditMetaModal({
             <DateField label="계약만료일" value={expiryDate} onChange={setExpiryDate} />
           </div>
 
-          {expiryIsPast && (
+          <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoRenewal}
+                onChange={(e) => setAutoRenewal(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              자동연장 조항이 있는 계약
+            </label>
+            {autoRenewal && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    자동연장 주기 (개월) *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={autoRenewalMonths}
+                    onChange={(e) => setAutoRenewalMonths(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">12 = 1년, 24 = 2년</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    자동연장 종료일 <span className="text-slate-400 font-normal">(선택)</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={autoRenewalEndDate}
+                    onChange={(e) => setAutoRenewalEndDate(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1">비우면 무기한</p>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {expiryPastBlocking && (
             <div className="rounded border border-amber-300 bg-amber-50 p-3 space-y-2">
-              <p className="text-xs text-amber-800">⚠️ 입력한 계약만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하세요.</p>
+              <p className="text-xs text-amber-800">⚠️ 입력한 계약만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.</p>
               <DateField label="연장 후 만료일 *" value={extendedExpiry} onChange={setExtendedExpiry} min={today} />
             </div>
           )}
 
-          {!expiryIsPast && (
+          {!expiryPastBlocking && (
             <div>
               <DateField label="연장 후 만료일 (선택)" value={extendedExpiry} onChange={setExtendedExpiry} />
               <p className="text-[11px] text-slate-500 mt-1">

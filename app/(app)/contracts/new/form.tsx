@@ -52,9 +52,13 @@ export default function NewContractForm({
   const [expiryDate, setExpiryDate] = useState('');
   const [extendedExpiryDate, setExtendedExpiryDate] = useState('');
   const [memo, setMemo] = useState('');
+  const [autoRenewal, setAutoRenewal] = useState(false);
+  const [autoRenewalMonths, setAutoRenewalMonths] = useState<string>('12');
+  const [autoRenewalEndDate, setAutoRenewalEndDate] = useState('');
 
   const today = new Date().toISOString().slice(0, 10);
   const expiryIsPast = !!expiryDate && expiryDate < today;
+  const expiryPastBlocking = expiryIsPast && !autoRenewal;
   const isSupplement = contractType !== 'parking_enforcement';
   const [successInfo, setSuccessInfo] = useState<
     | { lgName: string; contractId: string }
@@ -110,16 +114,25 @@ export default function NewContractForm({
       setError('부속 계약은 같은 지자체의 메인 계약을 선택해야 합니다.');
       return;
     }
-    if (expiryIsPast && !extendedExpiryDate) {
-      setError('만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하세요.');
+    if (expiryPastBlocking && !extendedExpiryDate) {
+      setError('만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.');
       return;
     }
     if (extendedExpiryDate && expiryDate && extendedExpiryDate <= expiryDate) {
       setError('연장 후 만료일은 기존 만료일 이후여야 합니다.');
       return;
     }
-    if (expiryIsPast && extendedExpiryDate && extendedExpiryDate < today) {
+    if (expiryPastBlocking && extendedExpiryDate && extendedExpiryDate < today) {
       setError('연장 후 만료일도 이미 지났습니다. 현재 유효한 만료일을 입력하세요.');
+      return;
+    }
+    const periodMonths = autoRenewal ? parseInt(autoRenewalMonths, 10) : null;
+    if (autoRenewal && (!periodMonths || periodMonths < 1)) {
+      setError('자동연장 주기(개월)를 1 이상으로 입력하세요.');
+      return;
+    }
+    if (autoRenewal && autoRenewalEndDate && expiryDate && autoRenewalEndDate < expiryDate) {
+      setError('자동연장 종료일은 계약만료일 이후여야 합니다.');
       return;
     }
     startTransition(async () => {
@@ -133,6 +146,9 @@ export default function NewContractForm({
         expiry_date: expiryDate || null,
         extended_expiry_date: extendedExpiryDate || null,
         memo: memo || null,
+        auto_renewal: autoRenewal,
+        auto_renewal_period_months: periodMonths,
+        auto_renewal_end_date: autoRenewal ? (autoRenewalEndDate || null) : null,
       });
       if (result.error) {
         setError(result.error);
@@ -292,7 +308,52 @@ export default function NewContractForm({
         />
       </div>
 
-      {expiryIsPast && (
+      <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-3">
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoRenewal}
+            onChange={(e) => setAutoRenewal(e.target.checked)}
+            className="rounded border-slate-300"
+          />
+          자동연장 조항이 있는 계약
+        </label>
+        {autoRenewal && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6">
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                자동연장 주기 (개월) *
+              </label>
+              <input
+                type="number"
+                min={1}
+                value={autoRenewalMonths}
+                onChange={(e) => setAutoRenewalMonths(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                12 = 1년, 24 = 2년 (만료일이 매 주기마다 자동으로 미래로 갱신됨)
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                자동연장 종료일 <span className="text-slate-400 font-normal">(선택)</span>
+              </label>
+              <input
+                type="date"
+                value={autoRenewalEndDate}
+                onChange={(e) => setAutoRenewalEndDate(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+              />
+              <p className="text-[11px] text-slate-500 mt-1">
+                비우면 무기한 자동연장. 입력 시 그 날짜를 넘기지 않음.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {expiryPastBlocking && (
         <div className="rounded border border-amber-300 bg-amber-50 p-3 space-y-3">
           <p className="text-xs text-amber-800">
             ⚠️ 입력하신 계약만료일이 이미 지났습니다. 이 계약이 연장되어 현재도 유효하다면, <strong>연장 후 만료일</strong>을 함께 입력하세요.

@@ -30,7 +30,7 @@ export default async function DashboardPage({
     supabase
       .from('contracts')
       .select(
-        'id, status, expiry_date, extended_expiry_date, local_governments(full_name, sigungu)',
+        'id, status, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, local_governments(full_name, sigungu)',
       )
       .eq('status', 'completed')
       .is('deleted_at', null)

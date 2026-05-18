@@ -9,6 +9,7 @@ import {
   fmtDate,
   fmtDateTime,
   effectiveExpiry,
+  formatAutoRenewalPeriod,
 } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
 
@@ -29,7 +30,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from('contracts')
     .select(
-      'id, status, contract_type, contracting_party, master_contract_id, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, updated_at, local_governments(full_name, sigungu, sido)',
+      'id, status, contract_type, contracting_party, master_contract_id, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, termination_reason, memo, updated_at, local_governments(full_name, sigungu, sido)',
     )
     .is('deleted_at', null)
     .order('updated_at', { ascending: false });
@@ -72,6 +73,7 @@ export async function GET(request: NextRequest) {
     { header: '계약시작일', key: 'effective', width: 12 },
     { header: '계약만료일', key: 'expiry', width: 12 },
     { header: '연장 후 만료일', key: 'extended', width: 14 },
+    { header: '자동연장', key: 'autoRenewal', width: 14 },
     { header: '실효 만료일', key: 'effExpiry', width: 12 },
     { header: '종료 사유', key: 'termReason', width: 30 },
     { header: '비고', key: 'memo', width: 40 },
@@ -98,6 +100,9 @@ export async function GET(request: NextRequest) {
       effective: fmtDate(c.effective_date),
       expiry: fmtDate(c.expiry_date),
       extended: fmtDate(c.extended_expiry_date),
+      autoRenewal: c.auto_renewal
+        ? `${formatAutoRenewalPeriod(c.auto_renewal_period_months)}${c.auto_renewal_end_date ? ` (~${c.auto_renewal_end_date})` : ''}`
+        : '',
       effExpiry: fmtDate(effectiveExpiry(c)),
       termReason: c.termination_reason ?? '',
       memo: c.memo ?? '',

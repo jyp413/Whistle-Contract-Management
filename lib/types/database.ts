@@ -232,6 +232,9 @@ export type Database = {
       }
       contracts: {
         Row: {
+          auto_renewal: boolean
+          auto_renewal_end_date: string | null
+          auto_renewal_period_months: number | null
           contract_type: Database["public"]["Enums"]["contract_type"]
           contracting_party: Database["public"]["Enums"]["contracting_party"]
           created_at: string
@@ -253,6 +256,9 @@ export type Database = {
           version: number
         }
         Insert: {
+          auto_renewal?: boolean
+          auto_renewal_end_date?: string | null
+          auto_renewal_period_months?: number | null
           contract_type?: Database["public"]["Enums"]["contract_type"]
           contracting_party?: Database["public"]["Enums"]["contracting_party"]
           created_at?: string
@@ -274,6 +280,9 @@ export type Database = {
           version?: number
         }
         Update: {
+          auto_renewal?: boolean
+          auto_renewal_end_date?: string | null
+          auto_renewal_period_months?: number | null
           contract_type?: Database["public"]["Enums"]["contract_type"]
           contracting_party?: Database["public"]["Enums"]["contracting_party"]
           created_at?: string
@@ -476,6 +485,16 @@ export type Database = {
           p_target_history_id: string
         }
         Returns: Json
+      }
+      contract_effective_expiry: {
+        Args: {
+          p_expiry_date: string | null
+          p_extended_expiry_date: string | null
+          p_auto_renewal: boolean
+          p_period_months: number | null
+          p_end_date: string | null
+        }
+        Returns: string | null
       }
       current_user_role: {
         Args: Record<string, never>

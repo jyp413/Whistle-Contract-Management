@@ -23,6 +23,9 @@ export default function EditMetaButton({
     contract_type: Ctype;
     contracting_party: Party;
     master_contract_id: string | null;
+    auto_renewal: boolean;
+    auto_renewal_period_months: number | null;
+    auto_renewal_end_date: string | null;
   };
   variant?: 'full' | 'icon';
 }) {

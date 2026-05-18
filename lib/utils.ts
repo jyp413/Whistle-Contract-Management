@@ -71,8 +71,39 @@ export function fmtDateTime(d: string | null | undefined) {
 export function effectiveExpiry(c: {
   expiry_date: string | null;
   extended_expiry_date: string | null;
-}) {
-  return c.extended_expiry_date ?? c.expiry_date;
+  auto_renewal?: boolean | null;
+  auto_renewal_period_months?: number | null;
+  auto_renewal_end_date?: string | null;
+}): string | null {
+  if (c.extended_expiry_date) return c.extended_expiry_date;
+  if (c.auto_renewal && c.auto_renewal_period_months && c.expiry_date) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const [y, m, d] = c.expiry_date.split('-').map(Number);
+    const cur = new Date(y, m - 1, d);
+    let end: Date | null = null;
+    if (c.auto_renewal_end_date) {
+      const [ey, em, ed] = c.auto_renewal_end_date.split('-').map(Number);
+      end = new Date(ey, em - 1, ed);
+    }
+    let i = 0;
+    while (cur < today && i < 240) {
+      cur.setMonth(cur.getMonth() + c.auto_renewal_period_months);
+      if (end && cur > end) return c.auto_renewal_end_date ?? null;
+      i++;
+    }
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${cur.getFullYear()}-${pad(cur.getMonth() + 1)}-${pad(cur.getDate())}`;
+  }
+  return c.expiry_date;
+}
+
+export function formatAutoRenewalPeriod(
+  months: number | null | undefined,
+): string {
+  if (!months || months < 1) return '';
+  if (months % 12 === 0) return `${months / 12}년`;
+  return `${months}개월`;
 }
 
 export function daysUntil(d: string | null | undefined): number | null {

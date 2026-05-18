@@ -14,6 +14,7 @@ import {
   fmtDateTime,
   canWrite,
   effectiveExpiry,
+  formatAutoRenewalPeriod,
 } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
 import EditMetaButton from './[id]/edit-meta-button';
@@ -92,7 +93,7 @@ export default async function ContractsListPage({
   let query = supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, memo, version, contract_type, contracting_party, master_contract_id, local_government_id, updated_at, local_governments(full_name, sigungu)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, memo, version, contract_type, contracting_party, master_contract_id, local_government_id, updated_at, local_governments(full_name, sigungu)',
     )
     .is('deleted_at', null)
     .order('local_government_id', { ascending: true })
@@ -391,7 +392,23 @@ export default async function ContractsListPage({
                     </span>
                   </td>
                   <td className="px-4 py-2 tabular-nums">{fmtDate(c.signed_date)}</td>
-                  <td className="px-4 py-2 tabular-nums">{fmtDate(effectiveExpiry(c))}</td>
+                  <td className="px-4 py-2 tabular-nums">
+                    <div className="flex items-center gap-1.5">
+                      <span>{fmtDate(effectiveExpiry(c))}</span>
+                      {c.auto_renewal && (
+                        <span
+                          className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset ring-orange-200 bg-orange-50 text-orange-700"
+                          title={
+                            c.auto_renewal_end_date
+                              ? `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)} (최대 ${c.auto_renewal_end_date})`
+                              : `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)}`
+                          }
+                        >
+                          🔄 {formatAutoRenewalPeriod(c.auto_renewal_period_months)}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-4 py-2 text-slate-600 text-xs">{fmtDateTime(c.updated_at)}</td>
                   <td className="px-4 py-2 text-right">
                     <div className="inline-flex items-center gap-1">
@@ -414,6 +431,9 @@ export default async function ContractsListPage({
                             contract_type: c.contract_type,
                             contracting_party: c.contracting_party,
                             master_contract_id: c.master_contract_id,
+                            auto_renewal: c.auto_renewal,
+                            auto_renewal_period_months: c.auto_renewal_period_months,
+                            auto_renewal_end_date: c.auto_renewal_end_date,
                           }}
                         />
                       )}

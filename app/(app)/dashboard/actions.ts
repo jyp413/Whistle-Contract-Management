@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
+import { effectiveExpiry } from '@/lib/utils';
 
 export type SearchMatch =
   | 'lg_name'
@@ -112,7 +113,7 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
   const { data: rows } = await supabase
     .from('contracts')
     .select(
-      'id, status, contract_type, contracting_party, master_contract_id, signed_date, expiry_date, extended_expiry_date, local_governments(full_name)',
+      'id, status, contract_type, contracting_party, master_contract_id, signed_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, local_governments(full_name)',
     )
     .is('deleted_at', null)
     .in('id', ids);
@@ -125,7 +126,7 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
     status: r.status,
     is_main: !r.master_contract_id,
     signed_date: r.signed_date,
-    effective_expiry: r.extended_expiry_date ?? r.expiry_date,
+    effective_expiry: effectiveExpiry(r),
     matches: Array.from(matchMap.get(r.id) ?? []),
   }));
   // lg_name → signed_date desc 보조 정렬

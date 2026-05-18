@@ -13,6 +13,7 @@ import {
   fmtDateTime,
   canWrite,
   effectiveExpiry,
+  formatAutoRenewalPeriod,
 } from '@/lib/utils';
 import UploadCard from './upload-card';
 import ContractActions from './contract-actions';
@@ -44,7 +45,7 @@ export default async function ContractDetailPage({
   const { data: contract, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification, contact_department, contact_name, contact_phone, contact_email)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification, contact_department, contact_name, contact_phone, contact_email)',
     )
     .eq('id', id)
     .is('deleted_at', null)
@@ -156,6 +157,9 @@ export default async function ContractDetailPage({
                 contract_type: contract.contract_type,
                 contracting_party: contract.contracting_party,
                 master_contract_id: contract.master_contract_id,
+                auto_renewal: contract.auto_renewal,
+                auto_renewal_period_months: contract.auto_renewal_period_months,
+                auto_renewal_end_date: contract.auto_renewal_end_date,
               }}
             />
           )}
@@ -190,6 +194,20 @@ export default async function ContractDetailPage({
             <Row label="계약만료일">{fmtDate(contract.expiry_date)}</Row>
             <Row label="연장 후 만료일">
               {fmtDate(contract.extended_expiry_date)}
+            </Row>
+            <Row label="자동연장">
+              {contract.auto_renewal ? (
+                <span className="inline-flex items-center gap-1 text-orange-700 font-medium">
+                  🔄 {formatAutoRenewalPeriod(contract.auto_renewal_period_months)}
+                  {contract.auto_renewal_end_date && (
+                    <span className="text-xs text-slate-500 font-normal">
+                      (최대 {fmtDate(contract.auto_renewal_end_date)})
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-slate-400">없음</span>
+              )}
             </Row>
             <Row label="실효 만료일">
               <span className="font-semibold">

@@ -483,6 +483,9 @@ export async function updateContractMeta(input: {
   contract_type: 'parking_enforcement' | 'personal_info_outsourcing' | 'mou' | 'other';
   contracting_party: 'monoplatform' | 'imcity';
   master_contract_id: string | null;
+  auto_renewal: boolean;
+  auto_renewal_period_months: number | null;
+  auto_renewal_end_date: string | null;
 }): Promise<Result<{ ok: true }>> {
   const me = await requireWriter();
   const supabase = await createClient();
@@ -490,7 +493,7 @@ export async function updateContractMeta(input: {
   const { data: cur, error: e1 } = await supabase
     .from('contracts')
     .select(
-      'id, version, signed_date, effective_date, expiry_date, extended_expiry_date, memo, contract_type, contracting_party, master_contract_id, local_government_id',
+      'id, version, signed_date, effective_date, expiry_date, extended_expiry_date, memo, contract_type, contracting_party, master_contract_id, local_government_id, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
     )
     .eq('id', input.contractId)
     .is('deleted_at', null)
@@ -505,9 +508,23 @@ export async function updateContractMeta(input: {
     return { error: '계약만료일은 시작일 이후여야 합니다.' };
   }
   const today = new Date().toISOString().slice(0, 10);
-  if (input.expiry_date && input.expiry_date < today) {
+
+  if (input.auto_renewal) {
+    if (!input.auto_renewal_period_months || input.auto_renewal_period_months < 1) {
+      return { error: '자동연장 주기(개월)를 1 이상으로 입력하세요.' };
+    }
+    if (
+      input.auto_renewal_end_date &&
+      input.expiry_date &&
+      input.auto_renewal_end_date < input.expiry_date
+    ) {
+      return { error: '자동연장 종료일은 계약만료일 이후여야 합니다.' };
+    }
+  }
+
+  if (input.expiry_date && input.expiry_date < today && !input.auto_renewal) {
     if (!input.extended_expiry_date) {
-      return { error: '만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하세요.' };
+      return { error: '만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.' };
     }
     if (input.extended_expiry_date <= input.expiry_date) {
       return { error: '연장 후 만료일은 기존 만료일 이후여야 합니다.' };
@@ -558,6 +575,9 @@ export async function updateContractMeta(input: {
         contract_type: input.contract_type,
         contracting_party: input.contracting_party,
         master_contract_id: input.master_contract_id,
+        auto_renewal: input.auto_renewal,
+        auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
+        auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
         version: cur.version + 1,
         updated_by: me.id,
       },
@@ -584,6 +604,9 @@ export async function updateContractMeta(input: {
       contract_type: cur.contract_type,
       contracting_party: cur.contracting_party,
       master_contract_id: cur.master_contract_id,
+      auto_renewal: cur.auto_renewal,
+      auto_renewal_period_months: cur.auto_renewal_period_months,
+      auto_renewal_end_date: cur.auto_renewal_end_date,
     },
     after_value: {
       signed_date: input.signed_date,
@@ -594,6 +617,9 @@ export async function updateContractMeta(input: {
       contract_type: input.contract_type,
       contracting_party: input.contracting_party,
       master_contract_id: input.master_contract_id,
+      auto_renewal: input.auto_renewal,
+      auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
+      auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
     },
   });
 

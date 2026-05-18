@@ -14,6 +14,9 @@ const Schema = z.object({
   expiry_date: z.string().nullable(),
   extended_expiry_date: z.string().nullable(),
   memo: z.string().nullable(),
+  auto_renewal: z.boolean(),
+  auto_renewal_period_months: z.number().int().positive().nullable(),
+  auto_renewal_end_date: z.string().nullable(),
 });
 
 export async function listMasterContractsForLG(
@@ -60,9 +63,22 @@ export async function createContractAction(input: unknown): Promise<
 
   const today = new Date().toISOString().slice(0, 10);
 
-  if (v.expiry_date && v.expiry_date < today) {
+  if (v.auto_renewal) {
+    if (!v.auto_renewal_period_months || v.auto_renewal_period_months < 1) {
+      return { error: '자동연장 주기(개월)를 1 이상으로 입력하세요.' };
+    }
+    if (
+      v.auto_renewal_end_date &&
+      v.expiry_date &&
+      v.auto_renewal_end_date < v.expiry_date
+    ) {
+      return { error: '자동연장 종료일은 계약만료일 이후여야 합니다.' };
+    }
+  }
+
+  if (v.expiry_date && v.expiry_date < today && !v.auto_renewal) {
     if (!v.extended_expiry_date) {
-      return { error: '만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하세요.' };
+      return { error: '만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.' };
     }
     if (v.extended_expiry_date <= v.expiry_date) {
       return { error: '연장 후 만료일은 기존 만료일 이후여야 합니다.' };
@@ -90,6 +106,9 @@ export async function createContractAction(input: unknown): Promise<
       expiry_date: v.expiry_date,
       extended_expiry_date: v.extended_expiry_date,
       memo: v.memo,
+      auto_renewal: v.auto_renewal,
+      auto_renewal_period_months: v.auto_renewal ? v.auto_renewal_period_months : null,
+      auto_renewal_end_date: v.auto_renewal ? v.auto_renewal_end_date : null,
       created_by: me.id,
       updated_by: me.id,
     })
@@ -135,6 +154,9 @@ export async function createContractAction(input: unknown): Promise<
       effective_date: v.effective_date,
       expiry_date: v.expiry_date,
       extended_expiry_date: v.extended_expiry_date,
+      auto_renewal: v.auto_renewal,
+      auto_renewal_period_months: v.auto_renewal ? v.auto_renewal_period_months : null,
+      auto_renewal_end_date: v.auto_renewal ? v.auto_renewal_end_date : null,
     },
   });
 
