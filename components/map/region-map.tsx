@@ -16,7 +16,7 @@ import {
   rollup,
   SIDO_BY_GEO_CODE,
 } from '@/lib/map/derive';
-import { coverageRate, fmtPct, partyColor, partyTint, TINT_LABEL } from '@/lib/map/rate';
+import { coverageRate, fmtPct, partyRateColor, partyTint, TINT_LABEL } from '@/lib/map/rate';
 import { sumParty } from '@/lib/map/aggregate-by-sido';
 import {
   lgsByGeoCode,
@@ -167,7 +167,7 @@ export function RegionMap({ stats }: Props) {
                 const noData = vf.lgs.every((l) => l.total === 0);
                 const sum = sumParty(vf.lgs);
                 const fill = noData ? 'url(#map-hatch)' : '';
-                const cls = noData ? '' : partyColor(sum);
+                const cls = noData ? '' : partyRateColor(vf.lgs);
                 const isHovered = hovered === vf.key;
                 const d = path(vf.feature) ?? '';
                 const offshore = isOffshore(vf.feature.properties.code);
@@ -271,25 +271,37 @@ export function RegionMap({ stats }: Props) {
 }
 
 function Legend() {
+  const orangeShades = ['fill-orange-100', 'fill-orange-200', 'fill-orange-300', 'fill-orange-400', 'fill-orange-500', 'fill-orange-600', 'fill-orange-700'];
+  const skyShades = ['fill-sky-100', 'fill-sky-200', 'fill-sky-300', 'fill-sky-400', 'fill-sky-500', 'fill-sky-600', 'fill-sky-700'];
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
-      <span className="font-medium text-slate-500">활성 메인 계약 주체</span>
-      <span className="flex items-center gap-1.5">
-        <svg width="14" height="14"><rect width="14" height="14" className="fill-orange-400" /></svg>
-        모노플랫폼 직접
-      </span>
-      <span className="flex items-center gap-1.5">
-        <svg width="14" height="14"><rect width="14" height="14" className="fill-sky-300" /></svg>
-        아이엠시티 경유
-      </span>
-      <span className="flex items-center gap-1.5">
-        <svg width="14" height="14"><rect width="14" height="14" className="fill-slate-200" /></svg>
-        미체결
-      </span>
-      <span className="flex items-center gap-1.5">
-        <svg width="14" height="14"><rect width="14" height="14" fill="#f1f5f9" stroke="#cbd5e1" /></svg>
-        데이터 없음
-      </span>
+    <div className="mt-3 space-y-1.5 text-[11px] text-slate-600">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-medium text-slate-500 min-w-[100px]">모노플랫폼 직접</span>
+        <span className="text-slate-400">낮음</span>
+        {orangeShades.map((c) => (
+          <svg key={c} width="14" height="14"><rect width="14" height="14" className={c} /></svg>
+        ))}
+        <span className="text-slate-400">높음</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="font-medium text-slate-500 min-w-[100px]">아이엠시티 경유</span>
+        <span className="text-slate-400">낮음</span>
+        {skyShades.map((c) => (
+          <svg key={c} width="14" height="14"><rect width="14" height="14" className={c} /></svg>
+        ))}
+        <span className="text-slate-400">높음</span>
+      </div>
+      <div className="flex items-center gap-3 pt-0.5">
+        <span className="flex items-center gap-1.5">
+          <svg width="14" height="14"><rect width="14" height="14" className="fill-slate-200" /></svg>
+          미체결
+        </span>
+        <span className="flex items-center gap-1.5">
+          <svg width="14" height="14"><rect width="14" height="14" fill="#f1f5f9" stroke="#cbd5e1" /></svg>
+          데이터 없음
+        </span>
+        <span className="text-slate-400">· 농도 = 지자체 체결율</span>
+      </div>
     </div>
   );
 }

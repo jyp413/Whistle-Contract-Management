@@ -15,6 +15,52 @@ export function partyTint(s: Pick<LgStat, 'completed_monoplatform' | 'completed_
   return 'none';
 }
 
+// 비율(rate)에 따른 농도 버킷 — Tailwind 색상 단계 7개.
+const ORANGE_BUCKETS: Array<{ max: number; cls: string }> = [
+  { max: 0.15, cls: 'fill-orange-100' },
+  { max: 0.3, cls: 'fill-orange-200' },
+  { max: 0.45, cls: 'fill-orange-300' },
+  { max: 0.6, cls: 'fill-orange-400' },
+  { max: 0.75, cls: 'fill-orange-500' },
+  { max: 0.9, cls: 'fill-orange-600' },
+  { max: 1.01, cls: 'fill-orange-700' },
+];
+
+const SKY_BUCKETS: Array<{ max: number; cls: string }> = [
+  { max: 0.15, cls: 'fill-sky-100' },
+  { max: 0.3, cls: 'fill-sky-200' },
+  { max: 0.45, cls: 'fill-sky-300' },
+  { max: 0.6, cls: 'fill-sky-400' },
+  { max: 0.75, cls: 'fill-sky-500' },
+  { max: 0.9, cls: 'fill-sky-600' },
+  { max: 1.01, cls: 'fill-sky-700' },
+];
+
+function pickBucket(rate: number, buckets: typeof ORANGE_BUCKETS): string {
+  for (const b of buckets) if (rate <= b.max) return b.cls;
+  return buckets[buckets.length - 1].cls;
+}
+
+// 폴리곤 단위 색상: 주체(monoplatform 우선) × 비율 버킷.
+// 미체결 LG는 회색. LG 자체가 0건이면 slate-200.
+export function partyRateColor(lgs: LgStat[]): string {
+  if (lgs.length === 0) return 'fill-slate-200';
+  const cov = coverageRate(lgs);
+  if (cov.rate === null || cov.covered === 0) return 'fill-slate-200';
+
+  let mono = 0;
+  let imc = 0;
+  for (const l of lgs) {
+    mono += l.completed_monoplatform;
+    imc += l.completed_imcity;
+  }
+  if (mono === 0 && imc === 0) return 'fill-slate-200';
+
+  const buckets = mono > 0 ? ORANGE_BUCKETS : SKY_BUCKETS;
+  return pickBucket(cov.rate, buckets);
+}
+
+// (legacy) 단순 partyColor — 비율 무시. partyRateColor 도입 후 미사용.
 const TINT_FILL: Record<PartyTint, string> = {
   monoplatform: 'fill-orange-400',
   imcity: 'fill-sky-300',
