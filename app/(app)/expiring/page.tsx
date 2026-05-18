@@ -4,6 +4,10 @@ import { requireUser } from '@/lib/auth';
 import {
   STATUS_BADGE,
   STATUS_LABEL,
+  PARTY_LABEL,
+  PARTY_BADGE,
+  TYPE_LABEL,
+  TYPE_BADGE,
   daysUntil,
   effectiveExpiry,
   fmtDate,
@@ -31,7 +35,7 @@ export default async function ExpiringPage({
   const { data: contracts, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, expiry_date, extended_expiry_date, updated_at, local_governments(full_name)',
+      'id, status, contract_type, contracting_party, master_contract_id, expiry_date, extended_expiry_date, updated_at, local_governments(full_name)',
     )
     .eq('status', 'completed')
     .is('deleted_at', null)
@@ -117,6 +121,8 @@ export default async function ExpiringPage({
           <thead>
             <tr className="text-xs text-slate-500 bg-slate-50">
               <th className="text-left px-4 py-2 font-medium">지자체</th>
+              <th className="text-left px-4 py-2 font-medium">유형</th>
+              <th className="text-left px-4 py-2 font-medium">주체</th>
               <th className="text-left px-4 py-2 font-medium">상태</th>
               <th className="text-left px-4 py-2 font-medium">실효 만료일</th>
               <th className="text-right px-4 py-2 font-medium">D-day</th>
@@ -125,7 +131,7 @@ export default async function ExpiringPage({
           <tbody>
             {enriched.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-10 text-center text-slate-400">
+                <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
                   해당 구간에 만료 임박 계약이 없습니다.
                 </td>
               </tr>
@@ -139,6 +145,16 @@ export default async function ExpiringPage({
                   >
                     {c.local_governments?.full_name ?? '-'}
                   </Link>
+                </td>
+                <td className="px-4 py-2">
+                  <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[c.contract_type]}`}>
+                    {TYPE_LABEL[c.contract_type]}{c.master_contract_id ? '·부속' : '·메인'}
+                  </span>
+                </td>
+                <td className="px-4 py-2">
+                  <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[c.contracting_party]}`}>
+                    {PARTY_LABEL[c.contracting_party]}
+                  </span>
                 </td>
                 <td className="px-4 py-2">
                   <span

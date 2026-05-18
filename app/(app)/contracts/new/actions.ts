@@ -6,12 +6,32 @@ import { requireWriter } from '@/lib/auth';
 
 const Schema = z.object({
   local_government_id: z.string().uuid(),
+  contracting_party: z.enum(['monoplatform', 'imcity']),
+  contract_type: z.enum(['parking_enforcement', 'personal_info_outsourcing', 'mou', 'other']),
+  master_contract_id: z.string().uuid().nullable(),
   signed_date: z.string().nullable(),
   effective_date: z.string().nullable(),
   expiry_date: z.string().nullable(),
   extended_expiry_date: z.string().nullable(),
   memo: z.string().nullable(),
 });
+
+export async function listMasterContractsForLG(
+  localGovernmentId: string,
+): Promise<Array<{ id: string; signed_date: string | null; status: string; contracting_party: string }>> {
+  await requireWriter();
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('contracts')
+    .select('id, signed_date, status, contracting_party')
+    .eq('local_government_id', localGovernmentId)
+    .eq('contract_type', 'parking_enforcement')
+    .is('master_contract_id', null)
+    .is('deleted_at', null)
+    .neq('status', 'terminated')
+    .order('signed_date', { ascending: false });
+  return data ?? [];
+}
 
 export async function createContractAction(input: unknown): Promise<
   | { error: string; id?: undefined }
@@ -26,6 +46,16 @@ export async function createContractAction(input: unknown): Promise<
 
   if (v.expiry_date && v.effective_date && v.expiry_date < v.effective_date) {
     return { error: '계약만료일은 시작일 이후여야 합니다.' };
+  }
+
+  if (v.contract_type === 'parking_enforcement') {
+    if (v.master_contract_id !== null) {
+      return { error: '주차단속 위수탁(메인) 계약은 메인 계약 연결을 가질 수 없습니다.' };
+    }
+  } else {
+    if (!v.master_contract_id) {
+      return { error: '부속 계약은 같은 지자체의 메인 계약을 선택해야 합니다.' };
+    }
   }
 
   const today = new Date().toISOString().slice(0, 10);
@@ -51,6 +81,9 @@ export async function createContractAction(input: unknown): Promise<
     .from('contracts')
     .insert({
       local_government_id: v.local_government_id,
+      contracting_party: v.contracting_party,
+      contract_type: v.contract_type,
+      master_contract_id: v.master_contract_id,
       status: 'in_progress',
       signed_date: v.signed_date,
       effective_date: v.effective_date,
@@ -94,6 +127,9 @@ export async function createContractAction(input: unknown): Promise<
     target_id: data.id,
     after_value: {
       local_government_id: v.local_government_id,
+      contracting_party: v.contracting_party,
+      contract_type: v.contract_type,
+      master_contract_id: v.master_contract_id,
       status: 'in_progress',
       signed_date: v.signed_date,
       effective_date: v.effective_date,

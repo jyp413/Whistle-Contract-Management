@@ -232,6 +232,8 @@ export type Database = {
       }
       contracts: {
         Row: {
+          contract_type: Database["public"]["Enums"]["contract_type"]
+          contracting_party: Database["public"]["Enums"]["contracting_party"]
           created_at: string
           created_by: string
           deleted_at: string | null
@@ -240,6 +242,7 @@ export type Database = {
           extended_expiry_date: string | null
           id: string
           local_government_id: string
+          master_contract_id: string | null
           memo: string | null
           parent_contract_id: string | null
           signed_date: string | null
@@ -250,6 +253,8 @@ export type Database = {
           version: number
         }
         Insert: {
+          contract_type?: Database["public"]["Enums"]["contract_type"]
+          contracting_party?: Database["public"]["Enums"]["contracting_party"]
           created_at?: string
           created_by: string
           deleted_at?: string | null
@@ -258,6 +263,7 @@ export type Database = {
           extended_expiry_date?: string | null
           id?: string
           local_government_id: string
+          master_contract_id?: string | null
           memo?: string | null
           parent_contract_id?: string | null
           signed_date?: string | null
@@ -268,6 +274,8 @@ export type Database = {
           version?: number
         }
         Update: {
+          contract_type?: Database["public"]["Enums"]["contract_type"]
+          contracting_party?: Database["public"]["Enums"]["contracting_party"]
           created_at?: string
           created_by?: string
           deleted_at?: string | null
@@ -276,6 +284,7 @@ export type Database = {
           extended_expiry_date?: string | null
           id?: string
           local_government_id?: string
+          master_contract_id?: string | null
           memo?: string | null
           parent_contract_id?: string | null
           signed_date?: string | null
@@ -303,6 +312,13 @@ export type Database = {
           {
             foreignKeyName: "contracts_parent_contract_id_fkey"
             columns: ["parent_contract_id"]
+            isOneToOne: false
+            referencedRelation: "contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contracts_master_contract_id_fkey"
+            columns: ["master_contract_id"]
             isOneToOne: false
             referencedRelation: "contracts"
             referencedColumns: ["id"]
@@ -488,6 +504,12 @@ export type Database = {
     }
     Enums: {
       contract_status: "in_progress" | "completed" | "updating" | "terminated"
+      contracting_party: "monoplatform" | "imcity"
+      contract_type:
+        | "parking_enforcement"
+        | "personal_info_outsourcing"
+        | "mou"
+        | "other"
       event_type:
         | "login"
         | "logout"
@@ -499,8 +521,11 @@ export type Database = {
         | "correction"
         | "file_upload"
         | "file_download"
+        | "file_delete"
         | "zip_download"
         | "permission_change"
+        | "meta_update"
+        | "cascade_terminate"
       job_status: "queued" | "running" | "succeeded" | "failed"
       job_type: "zip_bundle" | "excel_export"
       lg_class: "si" | "gun" | "gu"

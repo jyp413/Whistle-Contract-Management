@@ -4,24 +4,45 @@ import { useState } from 'react';
 import type { Database } from '@/lib/types/database';
 
 type Status = Database['public']['Enums']['contract_status'] | 'all';
+type Ctype = Database['public']['Enums']['contract_type'] | 'all';
+type Party = Database['public']['Enums']['contracting_party'] | 'all';
 
-export default function ZipMenu({ status }: { status: Status }) {
+export default function ZipMenu({
+  status,
+  type = 'all',
+  party = 'all',
+  q = '',
+}: {
+  status: Status;
+  type?: Ctype;
+  party?: Party;
+  q?: string;
+}) {
   const [open, setOpen] = useState(false);
+
+  const filterSuffix = () => {
+    const p: Record<string, string> = {};
+    if (type !== 'all') p.type = type;
+    if (party !== 'all') p.party = party;
+    if (q) p.q = q;
+    const qs = new URLSearchParams(p).toString();
+    return qs ? `&${qs}` : '';
+  };
 
   const items = [
     {
       label: '최신 버전만 (옵션 A)',
-      href: '/api/export/contracts.zip?scope=latest_only',
+      href: `/api/export/contracts.zip?scope=latest_only${filterSuffix()}`,
     },
     {
       label: '모든 버전 (옵션 B)',
-      href: '/api/export/contracts.zip?scope=all_versions',
+      href: `/api/export/contracts.zip?scope=all_versions${filterSuffix()}`,
     },
     ...(status !== 'all'
       ? [
           {
             label: `현재 상태(${status})만 (옵션 C)`,
-            href: `/api/export/contracts.zip?scope=by_status&status=${status}`,
+            href: `/api/export/contracts.zip?scope=by_status&status=${status}${filterSuffix()}`,
           },
         ]
       : []),

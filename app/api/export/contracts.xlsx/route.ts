@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server';
 import { requireWriter } from '@/lib/auth';
 import {
   STATUS_LABEL,
+  PARTY_LABEL,
+  TYPE_LABEL,
   fmtDate,
   fmtDateTime,
   effectiveExpiry,
@@ -11,6 +13,8 @@ import {
 import type { Database } from '@/lib/types/database';
 
 type Status = Database['public']['Enums']['contract_status'];
+type Ctype = Database['public']['Enums']['contract_type'];
+type Party = Database['public']['Enums']['contracting_party'];
 
 export async function GET(request: NextRequest) {
   const me = await requireWriter();
@@ -18,18 +22,26 @@ export async function GET(request: NextRequest) {
 
   const url = new URL(request.url);
   const status = url.searchParams.get('status') as Status | 'all' | null;
+  const type = url.searchParams.get('type') as Ctype | 'all' | null;
+  const party = url.searchParams.get('party') as Party | 'all' | null;
   const q = url.searchParams.get('q')?.trim() ?? '';
 
   let query = supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, updated_at, local_governments(full_name, sigungu, sido)',
+      'id, status, contract_type, contracting_party, master_contract_id, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, updated_at, local_governments(full_name, sigungu, sido)',
     )
     .is('deleted_at', null)
     .order('updated_at', { ascending: false });
 
   if (status && status !== 'all') {
     query = query.eq('status', status);
+  }
+  if (type && type !== 'all') {
+    query = query.eq('contract_type', type);
+  }
+  if (party && party !== 'all') {
+    query = query.eq('contracting_party', party);
   }
 
   const { data: contracts, error } = await query;
@@ -52,6 +64,9 @@ export async function GET(request: NextRequest) {
   const ws = wb.addWorksheet('계약 목록');
   ws.columns = [
     { header: '지자체', key: 'lg', width: 26 },
+    { header: '유형', key: 'type', width: 16 },
+    { header: '주체', key: 'party', width: 14 },
+    { header: '계층', key: 'tier', width: 8 },
     { header: '상태', key: 'status', width: 10 },
     { header: '계약체결일', key: 'signed', width: 12 },
     { header: '계약시작일', key: 'effective', width: 12 },
@@ -75,6 +90,9 @@ export async function GET(request: NextRequest) {
   for (const c of rows) {
     ws.addRow({
       lg: c.local_governments?.full_name ?? '-',
+      type: TYPE_LABEL[c.contract_type],
+      party: PARTY_LABEL[c.contracting_party],
+      tier: c.master_contract_id ? '부속' : '메인',
       status: STATUS_LABEL[c.status],
       signed: fmtDate(c.signed_date),
       effective: fmtDate(c.effective_date),
@@ -98,7 +116,7 @@ export async function GET(request: NextRequest) {
     target_type: null,
     after_value: {
       type: 'excel_export',
-      filter: { status, q },
+      filter: { status, type, party, q },
       count: rows.length,
     },
   });

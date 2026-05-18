@@ -5,6 +5,10 @@ import { requireUser } from '@/lib/auth';
 import {
   STATUS_LABEL,
   STATUS_BADGE,
+  PARTY_LABEL,
+  PARTY_BADGE,
+  TYPE_LABEL,
+  TYPE_BADGE,
   fmtDate,
   fmtDateTime,
   canWrite,
@@ -13,6 +17,8 @@ import {
 import UploadCard from './upload-card';
 import ContractActions from './contract-actions';
 import FilePreviewButton from './file-preview';
+import EditMetaButton from './edit-meta-button';
+import FileDeleteButton from './file-delete-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +43,7 @@ export default async function ContractDetailPage({
   const { data: contract, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, version, parent_contract_id, created_at, updated_at, local_governments(full_name, sigungu, classification)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification)',
     )
     .eq('id', id)
     .is('deleted_at', null)
@@ -96,7 +102,7 @@ export default async function ContractDetailPage({
             {' '}/{' '}
             <span className="text-slate-700">계약 상세</span>
           </p>
-          <div className="flex items-center gap-3 mt-1">
+          <div className="flex items-center gap-3 mt-1 flex-wrap">
             <h1 className="text-xl font-bold text-slate-900">
               {contract.local_governments?.full_name}
             </h1>
@@ -105,7 +111,22 @@ export default async function ContractDetailPage({
             >
               {STATUS_LABEL[contract.status]}
             </span>
+            <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[contract.contract_type]}`}>
+              {TYPE_LABEL[contract.contract_type]}{!contract.master_contract_id ? ' · 메인' : ' · 부속'}
+            </span>
+            <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[contract.contracting_party]}`}>
+              {PARTY_LABEL[contract.contracting_party]}
+            </span>
           </div>
+          {contract.master_contract_id && (
+            <p className="text-xs text-slate-500 mt-1">
+              ⌬ 부속 계약 (메인:{' '}
+              <Link href={`/contracts/${contract.master_contract_id}`} className="text-indigo-600 hover:underline font-mono">
+                {contract.master_contract_id.slice(0, 8)}…
+              </Link>
+              )
+            </p>
+          )}
           {contract.parent_contract_id && (
             <p className="text-xs text-slate-500 mt-1">
               ↻ 갱신 계약 (부모:{' '}
@@ -119,22 +140,41 @@ export default async function ContractDetailPage({
             </p>
           )}
         </div>
-        <ContractActions
-          contractId={contract.id}
-          status={contract.status}
-          version={contract.version}
-          effectiveExpiry={effectiveExpiry(contract)}
-          history={(history ?? []).map((h) => ({
-            id: h.id,
-            from_status: h.from_status,
-            to_status: h.to_status,
-            transition_type: h.transition_type,
-            is_correction: h.is_correction,
-            changed_at: h.changed_at,
-          }))}
-          userRole={me.role}
-          parentContractId={contract.parent_contract_id}
-        />
+        <div className="flex items-start gap-2 flex-wrap">
+          {writer && (
+            <EditMetaButton
+              contract={{
+                id: contract.id,
+                version: contract.version,
+                local_government_id: contract.local_government_id,
+                signed_date: contract.signed_date,
+                effective_date: contract.effective_date,
+                expiry_date: contract.expiry_date,
+                extended_expiry_date: contract.extended_expiry_date,
+                memo: contract.memo,
+                contract_type: contract.contract_type,
+                contracting_party: contract.contracting_party,
+                master_contract_id: contract.master_contract_id,
+              }}
+            />
+          )}
+          <ContractActions
+            contractId={contract.id}
+            status={contract.status}
+            version={contract.version}
+            effectiveExpiry={effectiveExpiry(contract)}
+            history={(history ?? []).map((h) => ({
+              id: h.id,
+              from_status: h.from_status,
+              to_status: h.to_status,
+              transition_type: h.transition_type,
+              is_correction: h.is_correction,
+              changed_at: h.changed_at,
+            }))}
+            userRole={me.role}
+            parentContractId={contract.parent_contract_id}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -233,11 +273,20 @@ export default async function ContractDetailPage({
                     )}
                   </td>
                   <td className="px-5 py-2 text-right">
-                    <FilePreviewButton
-                      storagePath={f.storage_path}
-                      filename={f.original_filename}
-                      canDownload={writer}
-                    />
+                    <div className="inline-flex items-center gap-2">
+                      <FilePreviewButton
+                        storagePath={f.storage_path}
+                        filename={f.original_filename}
+                        canDownload={writer}
+                      />
+                      {writer && (
+                        <FileDeleteButton
+                          fileId={f.id}
+                          contractId={contract.id}
+                          filename={f.original_filename}
+                        />
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

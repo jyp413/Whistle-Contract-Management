@@ -9,6 +9,8 @@ import type { Database } from '@/lib/types/database';
 
 type ContractStatus = Database['public']['Enums']['contract_status'];
 type UserRole = Database['public']['Enums']['user_role'];
+type ContractingParty = Database['public']['Enums']['contracting_party'];
+type ContractType = Database['public']['Enums']['contract_type'];
 
 export const STATUS_LABEL: Record<ContractStatus, string> = {
   in_progress: '체결중',
@@ -28,6 +30,30 @@ export const ROLE_LABEL: Record<UserRole, string> = {
   master: 'Master',
   accounting: 'Accounting',
   viewer: 'Viewer',
+};
+
+export const PARTY_LABEL: Record<ContractingParty, string> = {
+  monoplatform: '모노플랫폼 직접',
+  imcity: '아이엠시티 경유',
+};
+
+export const PARTY_BADGE: Record<ContractingParty, string> = {
+  monoplatform: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
+  imcity: 'bg-purple-50 text-purple-700 ring-purple-600/20',
+};
+
+export const TYPE_LABEL: Record<ContractType, string> = {
+  parking_enforcement: '주차단속 위수탁',
+  personal_info_outsourcing: '개인정보 위수탁',
+  mou: 'MOU',
+  other: '기타',
+};
+
+export const TYPE_BADGE: Record<ContractType, string> = {
+  parking_enforcement: 'bg-slate-100 text-slate-800 ring-slate-500/20',
+  personal_info_outsourcing: 'bg-amber-50 text-amber-800 ring-amber-600/20',
+  mou: 'bg-teal-50 text-teal-800 ring-teal-600/20',
+  other: 'bg-gray-100 text-gray-700 ring-gray-500/20',
 };
 
 export function fmtDate(d: string | null | undefined) {

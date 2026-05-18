@@ -464,3 +464,217 @@ export async function applyCorrection(input: {
   revalidatePath(`/contracts/${input.contractId}`);
   return { ok: true };
 }
+
+/**
+ * 메타데이터 자유 수정 (status 외).
+ * - 수정 가능: signed_date, effective_date, expiry_date, extended_expiry_date, memo,
+ *   contract_type, contracting_party, master_contract_id
+ * - 수정 금지: local_government_id, status, parent_contract_id, version, deleted_at
+ * - 옵티미스틱 락(version) + activity_logs(before/after) 기록
+ */
+export async function updateContractMeta(input: {
+  contractId: string;
+  expectedVersion: number;
+  signed_date: string | null;
+  effective_date: string | null;
+  expiry_date: string | null;
+  extended_expiry_date: string | null;
+  memo: string | null;
+  contract_type: 'parking_enforcement' | 'personal_info_outsourcing' | 'mou' | 'other';
+  contracting_party: 'monoplatform' | 'imcity';
+  master_contract_id: string | null;
+}): Promise<Result<{ ok: true }>> {
+  const me = await requireWriter();
+  const supabase = await createClient();
+
+  const { data: cur, error: e1 } = await supabase
+    .from('contracts')
+    .select(
+      'id, version, signed_date, effective_date, expiry_date, extended_expiry_date, memo, contract_type, contracting_party, master_contract_id, local_government_id',
+    )
+    .eq('id', input.contractId)
+    .is('deleted_at', null)
+    .single();
+
+  if (e1 || !cur) return { error: '계약을 찾을 수 없습니다.' };
+  if (cur.version !== input.expectedVersion) {
+    return { error: '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' };
+  }
+
+  if (input.expiry_date && input.effective_date && input.expiry_date < input.effective_date) {
+    return { error: '계약만료일은 시작일 이후여야 합니다.' };
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  if (input.expiry_date && input.expiry_date < today) {
+    if (!input.extended_expiry_date) {
+      return { error: '만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하세요.' };
+    }
+    if (input.extended_expiry_date <= input.expiry_date) {
+      return { error: '연장 후 만료일은 기존 만료일 이후여야 합니다.' };
+    }
+    if (input.extended_expiry_date < today) {
+      return { error: '연장 후 만료일도 이미 지났습니다. 현재 유효한 만료일을 입력하세요.' };
+    }
+  }
+  if (input.extended_expiry_date && input.expiry_date && input.extended_expiry_date <= input.expiry_date) {
+    return { error: '연장 후 만료일은 기존 만료일 이후여야 합니다.' };
+  }
+
+  if (input.contract_type === 'parking_enforcement') {
+    if (input.master_contract_id !== null) {
+      return { error: '주차단속 위수탁(메인)은 메인 계약 연결을 가질 수 없습니다.' };
+    }
+  } else {
+    if (!input.master_contract_id) {
+      return { error: '부속 계약은 같은 지자체의 메인 계약을 선택해야 합니다.' };
+    }
+  }
+
+  // 메인 → 부속 전환 시: 이 계약을 메인으로 가리키는 부속들이 있으면 거부 (고아 방지)
+  const becomingSupplement =
+    cur.master_contract_id === null && input.master_contract_id !== null;
+  if (becomingSupplement) {
+    const { count: depCount } = await supabase
+      .from('contracts')
+      .select('id', { count: 'exact', head: true })
+      .eq('master_contract_id', input.contractId)
+      .is('deleted_at', null);
+    if ((depCount ?? 0) > 0) {
+      return {
+        error: `이 계약을 메인으로 가리키는 부속 계약이 ${depCount}건 있어 부속으로 전환할 수 없습니다. 먼저 해당 부속들의 메인을 다른 계약으로 변경하거나 종료하세요.`,
+      };
+    }
+  }
+
+  const { error: e2, count } = await supabase
+    .from('contracts')
+    .update(
+      {
+        signed_date: input.signed_date,
+        effective_date: input.effective_date,
+        expiry_date: input.expiry_date,
+        extended_expiry_date: input.extended_expiry_date,
+        memo: input.memo,
+        contract_type: input.contract_type,
+        contracting_party: input.contracting_party,
+        master_contract_id: input.master_contract_id,
+        version: cur.version + 1,
+        updated_by: me.id,
+      },
+      { count: 'exact' },
+    )
+    .eq('id', input.contractId)
+    .eq('version', cur.version)
+    .is('deleted_at', null);
+
+  if (e2) return { error: e2.message };
+  if (!count) return { error: '동시 수정 충돌. 새로고침 후 다시 시도하세요.' };
+
+  await supabase.from('activity_logs').insert({
+    actor_id: me.id,
+    event_type: 'meta_update',
+    target_type: 'contract',
+    target_id: input.contractId,
+    before_value: {
+      signed_date: cur.signed_date,
+      effective_date: cur.effective_date,
+      expiry_date: cur.expiry_date,
+      extended_expiry_date: cur.extended_expiry_date,
+      memo: cur.memo,
+      contract_type: cur.contract_type,
+      contracting_party: cur.contracting_party,
+      master_contract_id: cur.master_contract_id,
+    },
+    after_value: {
+      signed_date: input.signed_date,
+      effective_date: input.effective_date,
+      expiry_date: input.expiry_date,
+      extended_expiry_date: input.extended_expiry_date,
+      memo: input.memo,
+      contract_type: input.contract_type,
+      contracting_party: input.contracting_party,
+      master_contract_id: input.master_contract_id,
+    },
+  });
+
+  revalidatePath(`/contracts/${input.contractId}`);
+  revalidatePath('/contracts');
+  return { ok: true };
+}
+
+/**
+ * 파일 삭제: DB soft (deleted_at + is_latest=false) + Storage hard (storage.remove).
+ * 삭제 행이 latest 였으면, 같은 contract의 가장 최근 살아있는 행을 latest로 승격.
+ */
+export async function deleteContractFile(input: {
+  fileId: string;
+  contractId: string;
+}): Promise<Result<{ ok: true }>> {
+  const me = await requireWriter();
+  const supabase = await createClient();
+
+  const { data: row, error: e1 } = await supabase
+    .from('contract_files')
+    .select('id, contract_id, storage_path, original_filename, version_no, is_latest, deleted_at')
+    .eq('id', input.fileId)
+    .single();
+
+  if (e1 || !row) return { error: '파일을 찾을 수 없습니다.' };
+  if (row.contract_id !== input.contractId) return { error: '계약 ID 불일치.' };
+  if (row.deleted_at) return { error: '이미 삭제된 파일입니다.' };
+
+  const { error: storageErr } = await supabase.storage
+    .from('contract-files')
+    .remove([row.storage_path]);
+
+  const wasLatest = row.is_latest;
+
+  const { error: e2, count } = await supabase
+    .from('contract_files')
+    .update(
+      { deleted_at: new Date().toISOString(), is_latest: false },
+      { count: 'exact' },
+    )
+    .eq('id', input.fileId)
+    .is('deleted_at', null);
+
+  if (e2) return { error: e2.message };
+  if (!count) return { error: '삭제 처리에 실패했습니다.' };
+
+  if (wasLatest) {
+    const { data: candidate } = await supabase
+      .from('contract_files')
+      .select('id')
+      .eq('contract_id', input.contractId)
+      .is('deleted_at', null)
+      .neq('id', input.fileId)
+      .order('uploaded_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (candidate) {
+      await supabase
+        .from('contract_files')
+        .update({ is_latest: true })
+        .eq('id', candidate.id);
+    }
+  }
+
+  await supabase.from('activity_logs').insert({
+    actor_id: me.id,
+    event_type: 'file_delete',
+    target_type: 'file',
+    target_id: input.fileId,
+    before_value: {
+      contract_id: row.contract_id,
+      storage_path: row.storage_path,
+      original_filename: row.original_filename,
+      version_no: row.version_no,
+      is_latest: row.is_latest,
+    },
+    after_value: { storage_removed: !storageErr },
+  });
+
+  revalidatePath(`/contracts/${input.contractId}`);
+  revalidatePath('/contracts');
+  return { ok: true };
+}

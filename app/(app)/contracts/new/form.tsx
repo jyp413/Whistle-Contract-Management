@@ -1,9 +1,11 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { createContractAction } from './actions';
+import { createContractAction, listMasterContractsForLG } from './actions';
 import SuccessModal from '@/app/components/success-modal';
+import { PARTY_LABEL, TYPE_LABEL, STATUS_LABEL } from '@/lib/utils';
+import type { Database } from '@/lib/types/database';
 
 type LG = {
   id: string;
@@ -11,6 +13,16 @@ type LG = {
   sido: string;
   sigungu: string;
   classification: 'si' | 'gun' | 'gu';
+};
+
+type Party = Database['public']['Enums']['contracting_party'];
+type Ctype = Database['public']['Enums']['contract_type'];
+
+type MasterOption = {
+  id: string;
+  signed_date: string | null;
+  status: string;
+  contracting_party: string;
 };
 
 const CLASS_LABEL: Record<LG['classification'], string> = {
@@ -30,6 +42,11 @@ export default function NewContractForm({
 
   const [sido, setSido] = useState('');
   const [lgId, setLgId] = useState('');
+  const [contractingParty, setContractingParty] = useState<Party>('monoplatform');
+  const [contractType, setContractType] = useState<Ctype>('parking_enforcement');
+  const [masterContractId, setMasterContractId] = useState<string>('');
+  const [masterOptions, setMasterOptions] = useState<MasterOption[]>([]);
+  const [masterLoading, setMasterLoading] = useState(false);
   const [signedDate, setSignedDate] = useState('');
   const [effectiveDate, setEffectiveDate] = useState('');
   const [expiryDate, setExpiryDate] = useState('');
@@ -38,10 +55,30 @@ export default function NewContractForm({
 
   const today = new Date().toISOString().slice(0, 10);
   const expiryIsPast = !!expiryDate && expiryDate < today;
+  const isSupplement = contractType !== 'parking_enforcement';
   const [successInfo, setSuccessInfo] = useState<
-    | { lgName: string }
+    | { lgName: string; contractId: string }
     | null
   >(null);
+
+  useEffect(() => {
+    if (!lgId || !isSupplement) {
+      setMasterOptions([]);
+      setMasterContractId('');
+      return;
+    }
+    let cancelled = false;
+    setMasterLoading(true);
+    listMasterContractsForLG(lgId).then((opts) => {
+      if (cancelled) return;
+      setMasterOptions(opts);
+      setMasterLoading(false);
+      if (opts.length === 1) setMasterContractId(opts[0].id);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [lgId, isSupplement]);
 
   // 광역단체 목록 (sido 고유값, 데이터 출현 순서 유지)
   const sidoList = useMemo(() => {
@@ -69,6 +106,10 @@ export default function NewContractForm({
       setError('지자체를 선택하세요.');
       return;
     }
+    if (isSupplement && !masterContractId) {
+      setError('부속 계약은 같은 지자체의 메인 계약을 선택해야 합니다.');
+      return;
+    }
     if (expiryIsPast && !extendedExpiryDate) {
       setError('만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하세요.');
       return;
@@ -84,6 +125,9 @@ export default function NewContractForm({
     startTransition(async () => {
       const result = await createContractAction({
         local_government_id: lgId,
+        contracting_party: contractingParty,
+        contract_type: contractType,
+        master_contract_id: isSupplement ? masterContractId : null,
         signed_date: signedDate || null,
         effective_date: effectiveDate || null,
         expiry_date: expiryDate || null,
@@ -94,13 +138,15 @@ export default function NewContractForm({
         setError(result.error);
         return;
       }
-      setSuccessInfo({ lgName: selectedLg?.full_name ?? '' });
+      setSuccessInfo({ lgName: selectedLg?.full_name ?? '', contractId: result.id ?? '' });
     });
   }
 
   function handleSuccessConfirm() {
+    const id = successInfo?.contractId;
     setSuccessInfo(null);
-    router.push('/contracts');
+    if (id) router.push(`/contracts/${id}`);
+    else router.push('/contracts');
     router.refresh();
   }
 
@@ -158,6 +204,75 @@ export default function NewContractForm({
           </p>
         )}
       </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            계약 주체 *
+          </label>
+          <select
+            value={contractingParty}
+            onChange={(e) => setContractingParty(e.target.value as Party)}
+            className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+          >
+            {(Object.keys(PARTY_LABEL) as Party[]).map((p) => (
+              <option key={p} value={p}>
+                {PARTY_LABEL[p]}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            계약 유형 *
+          </label>
+          <select
+            value={contractType}
+            onChange={(e) => {
+              const next = e.target.value as Ctype;
+              setContractType(next);
+              if (next === 'parking_enforcement') setMasterContractId('');
+            }}
+            className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+          >
+            {(Object.keys(TYPE_LABEL) as Ctype[]).map((t) => (
+              <option key={t} value={t}>
+                {TYPE_LABEL[t]}
+                {t === 'parking_enforcement' ? ' (메인)' : ' (부속)'}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {isSupplement && (
+        <div>
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            메인 계약 * <span className="text-slate-400 font-normal">(같은 지자체의 주차단속 위수탁 계약)</span>
+          </label>
+          <select
+            value={masterContractId}
+            onChange={(e) => setMasterContractId(e.target.value)}
+            disabled={!lgId || masterLoading}
+            className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400"
+          >
+            <option value="">
+              {!lgId
+                ? '먼저 지자체를 선택하세요'
+                : masterLoading
+                ? '로딩 중…'
+                : masterOptions.length === 0
+                ? '활성 메인 계약 없음 — 메인 계약을 먼저 등록하세요'
+                : '메인 계약 선택'}
+            </option>
+            {masterOptions.map((m) => (
+              <option key={m.id} value={m.id}>
+                {(m.signed_date ?? '체결일 미정')} · {PARTY_LABEL[m.contracting_party as Party] ?? m.contracting_party} · {STATUS_LABEL[m.status as keyof typeof STATUS_LABEL] ?? m.status}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <FormDate

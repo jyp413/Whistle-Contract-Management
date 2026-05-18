@@ -19,8 +19,11 @@ const EVENT_LABEL: Record<EventType, string> = {
   correction: '상태 보정',
   file_upload: '파일 업로드',
   file_download: '파일 다운로드',
+  file_delete: '파일 삭제',
   zip_download: 'ZIP 다운로드',
   permission_change: '권한 변경',
+  meta_update: '계약 정보 수정',
+  cascade_terminate: '부속 자동 종료',
 };
 
 const EVENT_FILTERS: { key: EventType | 'all'; label: string }[] = [
