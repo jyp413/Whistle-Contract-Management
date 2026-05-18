@@ -16,9 +16,9 @@ import {
 export const dynamic = 'force-dynamic';
 
 const BUCKETS = [
-  { label: '7일 이내', max: 7, tone: 'red' },
-  { label: '8~30일', min: 8, max: 30, tone: 'amber' },
-  { label: '31~60일', min: 31, max: 60, tone: 'slate' },
+  { label: '30일 이내', max: 30, tone: 'red' },
+  { label: '31~60일', min: 31, max: 60, tone: 'amber' },
+  { label: '61~90일', min: 61, max: 90, tone: 'slate' },
 ] as const;
 
 export default async function ExpiringPage({
@@ -28,8 +28,8 @@ export default async function ExpiringPage({
 }) {
   await requireUser();
   const sp = await searchParams;
-  const win = parseInt(sp.window ?? '60', 10);
-  const validWindow = [7, 30, 60].includes(win) ? win : 60;
+  const win = parseInt(sp.window ?? '90', 10);
+  const validWindow = [30, 60, 90].includes(win) ? win : 90;
 
   const supabase = await createClient();
   const { data: contracts, error } = await supabase
@@ -68,7 +68,7 @@ export default async function ExpiringPage({
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-slate-900">만료 임박 계약</h1>
         <div className="flex gap-1">
-          {[7, 30, 60].map((w) => (
+          {[30, 60, 90].map((w) => (
             <Link
               key={w}
               href={`/expiring?window=${w}`}
@@ -166,9 +166,9 @@ export default async function ExpiringPage({
                 <td className="px-4 py-2 tabular-nums">{fmtDate(c.expiry)}</td>
                 <td
                   className={`px-4 py-2 text-right tabular-nums ${
-                    (c.days ?? 0) <= 7
+                    (c.days ?? 0) <= 30
                       ? 'text-red-600 font-semibold'
-                      : (c.days ?? 0) <= 30
+                      : (c.days ?? 0) <= 60
                         ? 'text-amber-600'
                         : 'text-slate-700'
                   }`}

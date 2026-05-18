@@ -49,14 +49,14 @@ export default async function DashboardPage({
     in_progress_count: 0,
     updating_count: 0,
     total_active: 0,
-    expiring_60d: 0,
     expiring_30d: 0,
-    expiring_7d: 0,
+    expiring_60d: 0,
+    expiring_90d: 0,
   };
 
   const expiringSoon = (expiring ?? []).filter((c) => {
     const d = daysUntil(effectiveExpiry(c));
-    return d !== null && d >= 0 && d <= 60;
+    return d !== null && d >= 0 && d <= 90;
   });
 
   return (
@@ -105,11 +105,11 @@ export default async function DashboardPage({
       <div className="bg-white rounded-lg shadow-sm border border-slate-200">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-900">
-            만료 임박 계약 (60일 이내)
+            만료 임박 계약 (90일 이내)
           </h2>
           <span className="text-xs text-slate-500">
-            60일 {kpi.expiring_60d} · 30일 {kpi.expiring_30d} · 7일{' '}
-            {kpi.expiring_7d}
+            90일 {kpi.expiring_90d} · 60일 {kpi.expiring_60d} · 30일{' '}
+            {kpi.expiring_30d}
           </span>
         </div>
         {expiringSoon.length === 0 ? (
@@ -146,9 +146,9 @@ export default async function DashboardPage({
                     </td>
                     <td
                       className={`px-5 py-2 text-right tabular-nums ${
-                        d !== null && d <= 7
+                        d !== null && d <= 30
                           ? 'text-red-600 font-semibold'
-                          : d !== null && d <= 30
+                          : d !== null && d <= 60
                             ? 'text-amber-600'
                             : 'text-slate-700'
                       }`}

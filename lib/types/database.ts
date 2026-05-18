@@ -487,7 +487,7 @@ export type Database = {
           completed_count: number
           expiring_30d: number
           expiring_60d: number
-          expiring_7d: number
+          expiring_90d: number
           in_progress_count: number
           total_active: number
           updating_count: number
