@@ -486,6 +486,8 @@ export type Database = {
         Returns: {
           classification: Database["public"]["Enums"]["lg_class"]
           completed: number
+          completed_imcity: number
+          completed_monoplatform: number
           full_name: string
           geo_code: string | null
           in_progress: number

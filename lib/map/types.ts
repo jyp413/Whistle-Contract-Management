@@ -14,6 +14,18 @@ export type LgStat = {
   in_progress: number;
   updating: number;
   terminated: number;
+  completed_monoplatform: number;
+  completed_imcity: number;
+};
+
+export type PartyTint = 'monoplatform' | 'imcity' | 'none';
+
+export type SidoSummary = {
+  sido: string;
+  lg_count: number;
+  completed: number;
+  completed_monoplatform: number;
+  completed_imcity: number;
 };
 
 export type View =

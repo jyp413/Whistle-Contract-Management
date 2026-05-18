@@ -16,13 +16,15 @@ import {
   rollup,
   SIDO_BY_GEO_CODE,
 } from '@/lib/map/derive';
-import { coverageRate, colorClass, fmtPct } from '@/lib/map/rate';
+import { coverageRate, fmtPct, partyColor, partyTint, TINT_LABEL } from '@/lib/map/rate';
+import { sumParty } from '@/lib/map/aggregate-by-sido';
 import {
   lgsByGeoCode,
   lgsByParentSi,
   lgsBySidoCode,
 } from '@/lib/map/match';
 import { RegionLeafPanel, type LeafSelection } from './region-leaf-panel';
+import { RegionNationPanel } from './region-nation-panel';
 import { RegionBreadcrumb } from './region-breadcrumb';
 
 type GeoProps = { name: string; code: string };
@@ -89,11 +91,21 @@ export function RegionMap({ stats }: Props) {
     return buildViewFeatures(topo, stats, view);
   }, [topo, stats, view]);
 
+  // 본토만으로 projection 을 fit → mainland 확대. 제주/울릉은 별도 transform으로 inset 배치.
+  const isOffshore = (code: string): 'jeju' | 'ulleung' | null => {
+    if (view.level !== 'nation') return null;
+    if (code.startsWith('50')) return 'jeju';
+    if (code === '37320') return 'ulleung';
+    return null;
+  };
+
   const projection = useMemo(() => {
     if (viewFeatures.length === 0) return null;
+    const mainland = viewFeatures.filter((v) => !isOffshore(v.feature.properties.code));
+    const fcSource = mainland.length > 0 ? mainland : viewFeatures;
     const fc: FeatureCollection<Polygon | MultiPolygon> = {
       type: 'FeatureCollection',
-      features: viewFeatures.map((v) => v.feature),
+      features: fcSource.map((v) => v.feature),
     };
     return geoMercator().fitExtent(
       [
@@ -102,9 +114,24 @@ export function RegionMap({ stats }: Props) {
       ],
       fc as unknown as GeoPermissibleObjects,
     );
-  }, [viewFeatures, size]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewFeatures, size, view.level]);
 
   const path = useMemo(() => (projection ? geoPath(projection) : null), [projection]);
+
+  // 제주·울릉 inset 위치: 본토 viewBox 안의 빈 자리.
+  // 제주는 본토 남서쪽 빈 공간 (좌하단), 울릉은 본토 오른쪽 빈 공간 (우상단).
+  const offshoreTransform = (kind: 'jeju' | 'ulleung', vf: ViewFeature): string => {
+    if (!path || !projection) return '';
+    const c = path.centroid(vf.feature);
+    if (!isFinite(c[0]) || !isFinite(c[1])) return '';
+    const target = kind === 'jeju'
+      ? { x: size.w * 0.18, y: size.h * 0.82, scale: 1.0 }
+      : { x: size.w * 0.86, y: size.h * 0.28, scale: 3.0 };
+    const dx = target.x - c[0] * target.scale;
+    const dy = target.y - c[1] * target.scale;
+    return `translate(${dx}, ${dy}) scale(${target.scale})`;
+  };
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
@@ -138,12 +165,15 @@ export function RegionMap({ stats }: Props) {
               {viewFeatures.map((vf) => {
                 const cov = coverageRate(vf.lgs);
                 const noData = vf.lgs.every((l) => l.total === 0);
+                const sum = sumParty(vf.lgs);
                 const fill = noData ? 'url(#map-hatch)' : '';
-                const cls = noData ? '' : colorClass(cov.rate);
+                const cls = noData ? '' : partyColor(sum);
                 const isHovered = hovered === vf.key;
                 const d = path(vf.feature) ?? '';
+                const offshore = isOffshore(vf.feature.properties.code);
+                const groupTransform = offshore ? offshoreTransform(offshore, vf) : '';
                 return (
-                  <g key={vf.key}>
+                  <g key={vf.key} transform={groupTransform || undefined}>
                     <path
                       d={d}
                       fill={fill || undefined}
@@ -160,7 +190,7 @@ export function RegionMap({ stats }: Props) {
                       }}
                     >
                       <title>
-                        {vf.label} · {fmtPct(cov.rate)} ({cov.covered}/{cov.total})
+                        {vf.label} · {fmtPct(cov.rate)} ({cov.covered}/{cov.total}) · {TINT_LABEL[partyTint(sum)]}
                       </title>
                     </path>
                   </g>
@@ -172,14 +202,26 @@ export function RegionMap({ stats }: Props) {
                 if (!isFinite(c[0]) || !isFinite(c[1])) return null;
                 const bounds = path.bounds(vf.feature);
                 const w = bounds[1][0] - bounds[0][0];
-                if (w < 28) return null;
+                const offshore = isOffshore(vf.feature.properties.code);
+                if (!offshore && w < 28) return null;
                 const noData = vf.lgs.length === 0 || vf.lgs.every((l) => l.total === 0);
-                const cov = coverageRate(vf.lgs);
-                const subLabel = noData ? '데이터 없음' : fmtPct(cov.rate);
+                const sum = sumParty(vf.lgs);
+                const completedTotal = sum.completed_monoplatform + sum.completed_imcity;
+                const subLabel = noData ? '데이터 없음' : `${completedTotal}건`;
+                let labelTransform: string;
+                if (offshore) {
+                  // offshore transform과 동일하게 centroid 위치를 SVG 위로 옮김.
+                  const target = offshore === 'jeju'
+                    ? { x: size.w * 0.18, y: size.h * 0.82 }
+                    : { x: size.w * 0.86, y: size.h * 0.28 };
+                  labelTransform = `translate(${target.x},${target.y})`;
+                } else {
+                  labelTransform = `translate(${c[0]},${c[1]})`;
+                }
                 return (
                   <g
                     key={`${vf.key}-label`}
-                    transform={`translate(${c[0]},${c[1]})`}
+                    transform={labelTransform}
                     pointerEvents="none"
                   >
                     <text
@@ -215,40 +257,39 @@ export function RegionMap({ stats }: Props) {
         <Legend />
       </div>
 
-      <RegionLeafPanel
-        selection={leaf}
-        onClose={() => setLeaf(null)}
-        view={view}
-      />
+      {view.level === 'nation' && !leaf ? (
+        <RegionNationPanel lgs={stats} />
+      ) : (
+        <RegionLeafPanel
+          selection={leaf}
+          onClose={() => setLeaf(null)}
+          view={view}
+        />
+      )}
     </div>
   );
 }
 
 function Legend() {
-  const items: Array<{ rate: number | null; label: string }> = [
-    { rate: null, label: '데이터 없음' },
-    { rate: 0.05, label: '0–14%' },
-    { rate: 0.2, label: '15–29%' },
-    { rate: 0.4, label: '30–44%' },
-    { rate: 0.55, label: '45–59%' },
-    { rate: 0.7, label: '60–74%' },
-    { rate: 0.85, label: '75–100%' },
-  ];
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-slate-600">
-      <span className="font-medium text-slate-500">계약 체결 지자체 비율</span>
-      {items.map((it) => (
-        <span key={it.label} className="flex items-center gap-1.5">
-          <svg width="14" height="14">
-            {it.rate === null ? (
-              <rect width="14" height="14" fill="#f1f5f9" stroke="#cbd5e1" />
-            ) : (
-              <rect width="14" height="14" className={colorClass(it.rate)} />
-            )}
-          </svg>
-          {it.label}
-        </span>
-      ))}
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+      <span className="font-medium text-slate-500">활성 메인 계약 주체</span>
+      <span className="flex items-center gap-1.5">
+        <svg width="14" height="14"><rect width="14" height="14" className="fill-orange-400" /></svg>
+        모노플랫폼 직접
+      </span>
+      <span className="flex items-center gap-1.5">
+        <svg width="14" height="14"><rect width="14" height="14" className="fill-sky-300" /></svg>
+        아이엠시티 경유
+      </span>
+      <span className="flex items-center gap-1.5">
+        <svg width="14" height="14"><rect width="14" height="14" className="fill-slate-200" /></svg>
+        미체결
+      </span>
+      <span className="flex items-center gap-1.5">
+        <svg width="14" height="14"><rect width="14" height="14" fill="#f1f5f9" stroke="#cbd5e1" /></svg>
+        데이터 없음
+      </span>
     </div>
   );
 }

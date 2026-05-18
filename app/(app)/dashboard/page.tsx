@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import {
   fmtDate,
-  fmtDateTime,
   daysUntil,
   effectiveExpiry,
 } from '@/lib/utils';
@@ -11,22 +10,6 @@ import { RegionMapCard } from '@/components/map/region-map-card';
 import type { LgStat } from '@/lib/map/types';
 
 export const dynamic = 'force-dynamic';
-
-type EventLabelMap = Record<string, string>;
-const EVENT_LABEL: EventLabelMap = {
-  login: '로그인',
-  logout: '로그아웃',
-  contract_create: '계약 등록',
-  contract_update: '계약 수정',
-  contract_delete: '계약 삭제',
-  status_change: '상태 변경',
-  extension: '계약기간 연장',
-  correction: '상태 보정',
-  file_upload: '파일 업로드',
-  file_download: '파일 다운로드',
-  zip_download: 'ZIP 다운로드',
-  permission_change: '권한 변경',
-};
 
 export default async function DashboardPage({
   searchParams,
@@ -40,7 +23,6 @@ export default async function DashboardPage({
   const [
     { data: kpiRows },
     { data: expiring },
-    { data: recent },
     { data: regionRows, error: regionErr },
   ] = await Promise.all([
     supabase.rpc('get_kpi_summary'),
@@ -53,11 +35,6 @@ export default async function DashboardPage({
       .is('deleted_at', null)
       .order('expiry_date', { ascending: true, nullsFirst: false })
       .limit(50),
-    supabase
-      .from('activity_logs')
-      .select('id, event_type, occurred_at, target_type, target_id')
-      .order('occurred_at', { ascending: false })
-      .limit(8),
     supabase.rpc('get_region_stats'),
   ]);
 
@@ -122,90 +99,65 @@ export default async function DashboardPage({
 
       <RegionMapCard stats={regionStats} />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white rounded-lg shadow-sm border border-slate-200">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900">
-              만료 임박 계약 (60일 이내)
-            </h2>
-            <span className="text-xs text-slate-500">
-              60일 {kpi.expiring_60d} · 30일 {kpi.expiring_30d} · 7일{' '}
-              {kpi.expiring_7d}
-            </span>
-          </div>
-          {expiringSoon.length === 0 ? (
-            <p className="px-5 py-10 text-center text-sm text-slate-400">
-              만료 임박 계약이 없습니다.
-            </p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-slate-500 bg-slate-50">
-                  <th className="text-left px-5 py-2 font-medium">지자체</th>
-                  <th className="text-left px-5 py-2 font-medium">실효 만료일</th>
-                  <th className="text-right px-5 py-2 font-medium">D-day</th>
-                </tr>
-              </thead>
-              <tbody>
-                {expiringSoon.slice(0, 10).map((c) => {
-                  const d = daysUntil(effectiveExpiry(c));
-                  return (
-                    <tr
-                      key={c.id}
-                      className="border-t border-slate-100 hover:bg-slate-50"
-                    >
-                      <td className="px-5 py-2">
-                        <Link
-                          href={`/contracts/${c.id}`}
-                          className="text-slate-900 hover:text-indigo-600"
-                        >
-                          {c.local_governments?.full_name ?? '-'}
-                        </Link>
-                      </td>
-                      <td className="px-5 py-2 text-slate-700 tabular-nums">
-                        {fmtDate(effectiveExpiry(c))}
-                      </td>
-                      <td
-                        className={`px-5 py-2 text-right tabular-nums ${
-                          d !== null && d <= 7
-                            ? 'text-red-600 font-semibold'
-                            : d !== null && d <= 30
-                              ? 'text-amber-600'
-                              : 'text-slate-700'
-                        }`}
+      <div className="bg-white rounded-lg shadow-sm border border-slate-200">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-900">
+            만료 임박 계약 (60일 이내)
+          </h2>
+          <span className="text-xs text-slate-500">
+            60일 {kpi.expiring_60d} · 30일 {kpi.expiring_30d} · 7일{' '}
+            {kpi.expiring_7d}
+          </span>
+        </div>
+        {expiringSoon.length === 0 ? (
+          <p className="px-5 py-10 text-center text-sm text-slate-400">
+            만료 임박 계약이 없습니다.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-slate-500 bg-slate-50">
+                <th className="text-left px-5 py-2 font-medium">지자체</th>
+                <th className="text-left px-5 py-2 font-medium">실효 만료일</th>
+                <th className="text-right px-5 py-2 font-medium">D-day</th>
+              </tr>
+            </thead>
+            <tbody>
+              {expiringSoon.slice(0, 10).map((c) => {
+                const d = daysUntil(effectiveExpiry(c));
+                return (
+                  <tr
+                    key={c.id}
+                    className="border-t border-slate-100 hover:bg-slate-50"
+                  >
+                    <td className="px-5 py-2">
+                      <Link
+                        href={`/contracts/${c.id}`}
+                        className="text-slate-900 hover:text-indigo-600"
                       >
-                        {d !== null ? `D-${d}` : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200">
-          <div className="px-5 py-3 border-b border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-900">최근 활동</h2>
-          </div>
-          <ul className="divide-y divide-slate-100">
-            {(recent ?? []).length === 0 && (
-              <li className="px-5 py-10 text-center text-sm text-slate-400">
-                활동 내역이 없습니다.
-              </li>
-            )}
-            {(recent ?? []).map((r) => (
-              <li key={r.id} className="px-5 py-2 text-sm">
-                <p className="text-slate-900">
-                  {EVENT_LABEL[r.event_type] ?? r.event_type}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {fmtDateTime(r.occurred_at)}
-                </p>
-              </li>
-            ))}
-          </ul>
-        </div>
+                        {c.local_governments?.full_name ?? '-'}
+                      </Link>
+                    </td>
+                    <td className="px-5 py-2 text-slate-700 tabular-nums">
+                      {fmtDate(effectiveExpiry(c))}
+                    </td>
+                    <td
+                      className={`px-5 py-2 text-right tabular-nums ${
+                        d !== null && d <= 7
+                          ? 'text-red-600 font-semibold'
+                          : d !== null && d <= 30
+                            ? 'text-amber-600'
+                            : 'text-slate-700'
+                      }`}
+                    >
+                      {d !== null ? `D-${d}` : '-'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
