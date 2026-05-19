@@ -4,16 +4,11 @@ import { createClient } from '@/lib/supabase/server';
 import { requireWriter } from '@/lib/auth';
 import {
   STATUS_LABEL,
-  PARTY_LABEL,
   fmtDate,
   fmtDateTime,
   effectiveExpiry,
   formatAutoRenewalPeriod,
 } from '@/lib/utils';
-import type { Database } from '@/lib/types/database';
-
-type Status = Database['public']['Enums']['contract_status'];
-type Party = Database['public']['Enums']['contracting_party'];
 
 export const runtime = 'nodejs';
 
@@ -22,11 +17,10 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
 
   const url = new URL(request.url);
-  const status = url.searchParams.get('status') as Status | 'all' | null;
-  const party = url.searchParams.get('party') as Party | 'all' | null;
+  const yearParam = url.searchParams.get('year')?.trim() ?? '';
   const q = url.searchParams.get('q')?.trim() ?? '';
 
-  let query = supabase
+  const { data: contracts, error } = await supabase
     .from('contracts')
     .select(
       'id, status, contract_type, contracting_party, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, termination_reason, memo, updated_at, local_governments(full_name, sigungu, sido, contact_department, contact_name, contact_phone, contact_email)',
@@ -34,20 +28,17 @@ export async function GET(request: NextRequest) {
     .eq('contract_type', 'mou')
     .is('deleted_at', null)
     .order('updated_at', { ascending: false });
-
-  if (status && status !== 'all') {
-    query = query.eq('status', status);
-  }
-  if (party && party !== 'all') {
-    query = query.eq('contracting_party', party);
-  }
-
-  const { data: contracts, error } = await query;
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   let rows = contracts ?? [];
+
+  // 연도 필터 (effective_date 기준)
+  if (yearParam && yearParam !== 'all' && /^\d{4}$/.test(yearParam)) {
+    rows = rows.filter((c) => c.effective_date?.startsWith(yearParam));
+  }
+
   if (q) {
     const needle = q.toLowerCase();
     rows = rows.filter((c) => {
@@ -75,7 +66,6 @@ export async function GET(request: NextRequest) {
     { header: '담당자', key: 'contact', width: 12 },
     { header: '전화', key: 'phone', width: 16 },
     { header: '이메일', key: 'email', width: 26 },
-    { header: '주체', key: 'party', width: 14 },
     { header: '상태', key: 'status', width: 10 },
     { header: '계약체결일', key: 'signed', width: 12 },
     { header: '계약시작일', key: 'effective', width: 12 },
@@ -107,7 +97,6 @@ export async function GET(request: NextRequest) {
       contact: lg?.contact_name ?? '',
       phone: lg?.contact_phone ?? '',
       email: lg?.contact_email ?? '',
-      party: PARTY_LABEL[c.contracting_party],
       status: STATUS_LABEL[c.status],
       signed: fmtDate(c.signed_date),
       effective: fmtDate(c.effective_date),
@@ -138,7 +127,7 @@ export async function GET(request: NextRequest) {
     target_type: null,
     after_value: {
       type: 'excel_export_maintenance',
-      filter: { status, party, q },
+      filter: { year: yearParam || 'all', q },
       count: rows.length,
     },
   });

@@ -39,9 +39,11 @@ type AutoRenewalInfo = {
 export default function ContractActions({
   contractId,
   status,
+  contractType,
   version,
   effectiveExpiry,
   autoRenewal,
+  renewPrefill,
   history,
   userRole,
   parentContractId,
@@ -49,15 +51,24 @@ export default function ContractActions({
 }: {
   contractId: string;
   status: Status;
+  contractType: Database['public']['Enums']['contract_type'];
   version: number;
   effectiveExpiry: string | null;
   autoRenewal: AutoRenewalInfo | null;
+  /** 갱신 모달에 표시할 전년도 정보 — 사용자가 새 계약 일자·금액을 가늠하기 쉽도록. */
+  renewPrefill: {
+    signedDate: string | null;
+    effectiveDate: string | null;
+    expiryDate: string | null;
+    amountKrw: number | null;
+  };
   history: HistoryItem[];
   userRole: 'master' | 'accounting' | 'viewer';
   parentContractId: string | null;
   /** 메인 계약일 때 살아있는 부속 건수 — terminate cascade 경고용. */
   supplementCount?: number;
 }) {
+  const isMou = contractType === 'mou';
   const router = useRouter();
   const [open, setOpen] = useState<
     null | 'extend' | 'terminate' | 'renew' | 'correct' | 'delete' | 'complete'
@@ -92,7 +103,7 @@ export default function ContractActions({
           onClick={() => setOpen('complete')}
         />
       )}
-      {status === 'completed' && (
+      {status === 'completed' && !isMou && (
         <ActionBtn label="기간 연장" tone="indigo" onClick={() => setOpen('extend')} />
       )}
       {status === 'completed' && (
@@ -148,6 +159,8 @@ export default function ContractActions({
         <RenewModal
           contractId={contractId}
           version={version}
+          contractType={contractType}
+          prefill={renewPrefill}
           onClose={() => setOpen(null)}
           onSuccess={(newId) => {
             setOpen(null);
@@ -462,16 +475,26 @@ function TerminateModal({
 function RenewModal({
   contractId,
   version,
+  contractType,
+  prefill,
   onClose,
   onSuccess,
 }: {
   contractId: string;
   version: number;
+  contractType: Database['public']['Enums']['contract_type'];
+  prefill: {
+    signedDate: string | null;
+    effectiveDate: string | null;
+    expiryDate: string | null;
+    amountKrw: number | null;
+  };
   onClose: () => void;
   onSuccess: (newId: string) => void;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const isMou = contractType === 'mou';
 
   function submit() {
     setError(null);
@@ -485,12 +508,49 @@ function RenewModal({
     });
   }
 
+  const periodLabel = prefill.effectiveDate && prefill.expiryDate
+    ? `${fmtDate(prefill.effectiveDate)} ~ ${fmtDate(prefill.expiryDate)}`
+    : null;
+
   return (
-    <Modal title="갱신 착수" onClose={onClose}>
+    <Modal title={isMou ? '유지보수 갱신 착수' : '갱신 착수'} onClose={onClose}>
       <p className="text-sm text-slate-700 mb-3">
-        신규 계약 건이 <b>「갱신중」</b> 상태로 별도 생성됩니다. 기존 계약은 만료일까지
-        「계약완료」로 유지됩니다.
+        신규 계약 건이 <b>「갱신중」</b> 상태로 별도 생성됩니다.
+        {isMou ? (
+          <>
+            {' '}유지보수는 매년 재계약이 원칙입니다. 기존 계약은 만료일까지
+            「계약완료」로 유지되며, 만료일 다음날 자동으로 종료됩니다.
+          </>
+        ) : (
+          <> 기존 계약은 만료일까지 「계약완료」로 유지됩니다.</>
+        )}
       </p>
+
+      <div className="rounded border border-slate-200 bg-slate-50 p-3 mb-3 text-xs">
+        <p className="text-slate-500 font-medium mb-1">전년도 계약 정보 (참고용)</p>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-slate-700">
+          <dt className="text-slate-500">체결일</dt>
+          <dd className="tabular-nums">{prefill.signedDate ? fmtDate(prefill.signedDate) : '-'}</dd>
+          <dt className="text-slate-500">계약기간</dt>
+          <dd className="tabular-nums">{periodLabel ?? '-'}</dd>
+          {isMou && (
+            <>
+              <dt className="text-slate-500">계약금액</dt>
+              <dd className="tabular-nums font-medium">
+                {prefill.amountKrw != null
+                  ? new Intl.NumberFormat('ko-KR').format(prefill.amountKrw) + '원'
+                  : '-'}
+              </dd>
+            </>
+          )}
+        </dl>
+        <p className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+          {isMou
+            ? '신규 row의 자동연장·계약금액은 전년도 값으로 prefill 됩니다. 생성 후 상세 화면에서 새 일자·금액을 입력하세요.'
+            : '신규 row는 전년도의 자동연장 설정을 그대로 상속받습니다. 생성 후 상세 화면에서 새 일자를 입력하세요.'}
+        </p>
+      </div>
+
       <p className="text-xs text-slate-500 mb-3">
         생성 후 신규 계약 상세 화면으로 이동합니다.
       </p>

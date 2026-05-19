@@ -9,7 +9,7 @@ import {
   effectiveExpiry,
   formatAutoRenewalPeriod,
 } from '@/lib/utils';
-import { StatusBadge, PartyBadge } from '@/app/components/badges';
+import { StatusBadge } from '@/app/components/badges';
 import type { Database } from '@/lib/types/database';
 
 type Status = Database['public']['Enums']['contract_status'];
@@ -51,7 +51,6 @@ export type MouFile = {
 
 export type MouSortKey =
   | 'lg_name'
-  | 'party'
   | 'status'
   | 'signed_date'
   | 'effective_expiry'
@@ -87,11 +86,6 @@ export default function MaintenanceTable({
             <th className="text-left px-4 py-2 font-medium">담당부서·담당자</th>
             <th className="text-left px-4 py-2 font-medium">연락처</th>
             <th className="text-left px-4 py-2 font-medium">
-              <Link href={sortLinks.party} className="hover:text-slate-900">
-                주체{sortArrows.party}
-              </Link>
-            </th>
-            <th className="text-left px-4 py-2 font-medium">
               <Link href={sortLinks.status} className="hover:text-slate-900">
                 상태{sortArrows.status}
               </Link>
@@ -122,7 +116,7 @@ export default function MaintenanceTable({
         <tbody>
           {rows.length === 0 && (
             <tr>
-              <td colSpan={11} className="px-4 py-10 text-center text-slate-400">
+              <td colSpan={10} className="px-4 py-10 text-center text-slate-400">
                 유지보수 계약이 없습니다.
               </td>
             </tr>
@@ -154,9 +148,6 @@ export default function MaintenanceTable({
                     </p>
                   )}
                   {!lg?.contact_phone && !lg?.contact_email && '-'}
-                </td>
-                <td className="px-4 py-2">
-                  <PartyBadge party={c.contracting_party} />
                 </td>
                 <td className="px-4 py-2">
                   <StatusBadge status={c.status} />

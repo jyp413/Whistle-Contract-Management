@@ -503,11 +503,14 @@ export async function createContractBatch(input: unknown): Promise<
       : datesSource;
     const supAmount = mouSup ? mouSup.amount_krw : null;
 
+    // mou 부속은 도메인상 항상 모노플랫폼 직접 — 폼의 주체값 무시하고 강제
+    const supParty: 'monoplatform' | 'imcity' = isMou ? 'monoplatform' : v.contracting_party;
+
     const ins = await supabase
       .from('contracts')
       .insert({
         local_government_id: v.local_government_id,
-        contracting_party: v.contracting_party,
+        contracting_party: supParty,
         contract_type: stype,
         master_contract_id: mainId,
         status: 'in_progress',
@@ -535,7 +538,7 @@ export async function createContractBatch(input: unknown): Promise<
     created.push({ id: ins.data.id, contract_type: stype });
     await recordCreateSideEffects(supabase, me.id, ins.data.id, {
       local_government_id: v.local_government_id,
-      contracting_party: v.contracting_party,
+      contracting_party: supParty,
       contract_type: stype,
       master_contract_id: mainId,
       signed_date: supDates.signed_date,

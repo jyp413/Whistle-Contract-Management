@@ -218,6 +218,7 @@ export default async function ContractDetailPage({
           <ContractActions
             contractId={contract.id}
             status={contract.status}
+            contractType={contract.contract_type}
             version={contract.version}
             effectiveExpiry={effectiveExpiry(contract)}
             autoRenewal={
@@ -228,6 +229,12 @@ export default async function ContractDetailPage({
                   }
                 : null
             }
+            renewPrefill={{
+              signedDate: contract.signed_date,
+              effectiveDate: contract.effective_date,
+              expiryDate: effectiveExpiry(contract),
+              amountKrw: contract.amount_krw,
+            }}
             history={(history ?? []).map((h) => ({
               id: h.id,
               from_status: h.from_status,

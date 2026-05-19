@@ -354,7 +354,7 @@ export async function startRenewal(input: {
   const { data: parent, error: e1 } = await supabase
     .from('contracts')
     .select(
-      'id, status, version, local_government_id, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
+      'id, status, version, local_government_id, contract_type, contracting_party, master_contract_id, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, memo',
     )
     .eq('id', input.parentContractId)
     .is('deleted_at', null)
@@ -377,13 +377,24 @@ export async function startRenewal(input: {
     nextStart = d.toISOString().slice(0, 10);
   }
 
+  // 부모의 type/party/master_contract_id를 새 row에도 상속 (chain 정합성).
+  // mou는 amount_krw + memo + auto_renewal 정보도 prefill — 사용자가 새 값 입력 시까지 작년 값 유지.
+  const isMou = parent.contract_type === 'mou';
   const { data: child, error: e2 } = await supabase
     .from('contracts')
     .insert({
       local_government_id: parent.local_government_id,
       parent_contract_id: parent.id,
+      contract_type: parent.contract_type,
+      contracting_party: parent.contracting_party,
+      master_contract_id: parent.master_contract_id,
       status: 'updating',
       effective_date: nextStart,
+      auto_renewal: parent.auto_renewal,
+      auto_renewal_period_months: parent.auto_renewal ? parent.auto_renewal_period_months : null,
+      auto_renewal_end_date: parent.auto_renewal ? parent.auto_renewal_end_date : null,
+      amount_krw: isMou ? parent.amount_krw : null,
+      memo: parent.memo,
       created_by: me.id,
       updated_by: me.id,
     })
@@ -629,6 +640,9 @@ export async function updateContractMeta(input: {
   ) {
     return { error: '계약금액은 0 이상의 정수여야 합니다.' };
   }
+  // 주체: mou는 도메인상 항상 monoplatform — DB CHECK도 강제. 폼이 imcity 보내도 덮어쓰기.
+  const finalParty: 'monoplatform' | 'imcity' =
+    input.contract_type === 'mou' ? 'monoplatform' : input.contracting_party;
 
   const { error: e2, count } = await supabase
     .from('contracts')
@@ -640,7 +654,7 @@ export async function updateContractMeta(input: {
         extended_expiry_date: input.extended_expiry_date,
         memo: input.memo,
         contract_type: input.contract_type,
-        contracting_party: input.contracting_party,
+        contracting_party: finalParty,
         master_contract_id: input.master_contract_id,
         auto_renewal: input.auto_renewal,
         auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
@@ -684,7 +698,7 @@ export async function updateContractMeta(input: {
       extended_expiry_date: input.extended_expiry_date,
       memo: input.memo,
       contract_type: input.contract_type,
-      contracting_party: input.contracting_party,
+      contracting_party: finalParty,
       master_contract_id: input.master_contract_id,
       auto_renewal: input.auto_renewal,
       auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,

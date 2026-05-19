@@ -5,35 +5,12 @@ import MaintenanceTable, { type MouSortKey } from './maintenance-table';
 import {
   canWrite,
   effectiveExpiry,
-  STATUS_LABEL,
-  PARTY_LABEL,
 } from '@/lib/utils';
-import type { Database } from '@/lib/types/database';
 
 export const dynamic = 'force-dynamic';
 
-type Status = Database['public']['Enums']['contract_status'];
-type Party = Database['public']['Enums']['contracting_party'];
-
-const STATUS_FILTERS: { key: Status | 'all'; label: string }[] = [
-  { key: 'all', label: '전체' },
-  ...(Object.entries(STATUS_LABEL) as [Status, string][]).map(([key, label]) => ({
-    key,
-    label,
-  })),
-];
-
-const PARTY_FILTERS: { key: Party | 'all'; label: string }[] = [
-  { key: 'all', label: '전체 주체' },
-  ...(Object.entries(PARTY_LABEL) as [Party, string][]).map(([key, label]) => ({
-    key,
-    label,
-  })),
-];
-
 const SORT_KEYS: ReadonlyArray<MouSortKey> = [
   'lg_name',
-  'party',
   'status',
   'signed_date',
   'effective_expiry',
@@ -49,9 +26,8 @@ export default async function MaintenanceListPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    status?: string;
     q?: string;
-    party?: string;
+    year?: string;
     sort?: string;
     dir?: string;
     page?: string;
@@ -60,8 +36,7 @@ export default async function MaintenanceListPage({
 }) {
   const me = await requireUser();
   const sp = await searchParams;
-  const status = (sp.status ?? 'all') as Status | 'all';
-  const party = (sp.party ?? 'all') as Party | 'all';
+  const yearParam = (sp.year ?? 'all').trim();
   const q = (sp.q ?? '').trim();
   const sort: MouSortKey = (SORT_KEYS as readonly string[]).includes(sp.sort ?? '')
     ? (sp.sort as MouSortKey)
@@ -75,7 +50,7 @@ export default async function MaintenanceListPage({
   const requestedPage = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
   const supabase = await createClient();
-  let query = supabase
+  const { data: contracts, error } = await supabase
     .from('contracts')
     .select(
       'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, memo, version, contract_type, contracting_party, master_contract_id, local_government_id, updated_at, local_governments(full_name, sigungu, contact_department, contact_name, contact_phone, contact_email)',
@@ -85,16 +60,31 @@ export default async function MaintenanceListPage({
     .order('updated_at', { ascending: false })
     .limit(SERVER_FETCH_CAP);
 
-  if (status !== 'all') {
-    query = query.eq('status', status);
+  const allMou = contracts ?? [];
+
+  // 연도별 요약 — effective_date의 연도 기준 (전체 데이터 기반, 연도 필터와 무관)
+  const yearSummaryMap = new Map<string, { count: number; totalAmount: number }>();
+  for (const c of allMou) {
+    if (!c.effective_date) continue;
+    const y = c.effective_date.slice(0, 4);
+    const entry = yearSummaryMap.get(y) ?? { count: 0, totalAmount: 0 };
+    entry.count += 1;
+    if (c.amount_krw != null) entry.totalAmount += c.amount_krw;
+    yearSummaryMap.set(y, entry);
   }
-  if (party !== 'all') {
-    query = query.eq('contracting_party', party);
+  const yearSummary = Array.from(yearSummaryMap.entries())
+    .sort(([a], [b]) => (a < b ? 1 : -1)) // 최신 연도가 먼저
+    .map(([year, v]) => ({ year, ...v }));
+
+  const availableYears = yearSummary.map((y) => y.year); // 최신부터
+
+  // 연도 필터 적용
+  let filtered = allMou;
+  if (yearParam !== 'all') {
+    filtered = filtered.filter((c) => c.effective_date?.startsWith(yearParam));
   }
 
-  const { data: contracts, error } = await query;
-
-  let filtered = contracts ?? [];
+  // 검색 필터 — column-wise ilike (보안: .or() DSL 금지)
   if (q) {
     const needle = q.toLowerCase();
     filtered = filtered.filter((c) => {
@@ -117,10 +107,6 @@ export default async function MaintenanceListPage({
       case 'lg_name':
         av = a.local_governments?.full_name ?? '';
         bv = b.local_governments?.full_name ?? '';
-        break;
-      case 'party':
-        av = a.contracting_party;
-        bv = b.contracting_party;
         break;
       case 'status':
         av = a.status;
@@ -157,7 +143,7 @@ export default async function MaintenanceListPage({
 
   const totalPages = Math.max(1, Math.ceil(totalEntries / size));
   const currentPage = Math.min(Math.max(1, requestedPage), totalPages);
-  const fetchCapped = (contracts?.length ?? 0) >= SERVER_FETCH_CAP;
+  const fetchCapped = allMou.length >= SERVER_FETCH_CAP;
 
   const visibleIds = paged.map((c) => c.id);
   const fileMap: Record<string, { id: string; original_filename: string }> = {};
@@ -180,8 +166,7 @@ export default async function MaintenanceListPage({
 
   const baseParams = (overrides: Record<string, string>) => {
     const params: Record<string, string> = {};
-    if (status !== 'all') params.status = status;
-    if (party !== 'all') params.party = party;
+    if (yearParam !== 'all') params.year = yearParam;
     if (q) params.q = q;
     if (sort !== 'lg_name') params.sort = sort;
     if (dir !== 'asc') params.dir = dir;
@@ -220,7 +205,6 @@ export default async function MaintenanceListPage({
 
   const sortLinks = {
     lg_name: sortLink('lg_name'),
-    party: sortLink('party'),
     status: sortLink('status'),
     signed_date: sortLink('signed_date'),
     effective_expiry: sortLink('effective_expiry'),
@@ -230,13 +214,14 @@ export default async function MaintenanceListPage({
 
   const sortArrows = {
     lg_name: sortArrow('lg_name'),
-    party: sortArrow('party'),
     status: sortArrow('status'),
     signed_date: sortArrow('signed_date'),
     effective_expiry: sortArrow('effective_expiry'),
     amount_krw: sortArrow('amount_krw'),
     updated_at: sortArrow('updated_at'),
   } satisfies Record<MouSortKey, string>;
+
+  const fmtKrw = (n: number) => new Intl.NumberFormat('ko-KR').format(n);
 
   return (
     <div className="space-y-4">
@@ -250,7 +235,7 @@ export default async function MaintenanceListPage({
         <div>
           <h1 className="text-xl font-bold text-slate-900">유지보수 계약</h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            계약등록 메뉴에서 유지보수 부속을 체크해 등록할 수 있습니다. 계약금액·일자는 메인과 독립.
+            매년 재계약 · 모노플랫폼 직접 단일 주체 · 기간 연장 개념 없음 (갱신 착수로 재계약)
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -265,50 +250,69 @@ export default async function MaintenanceListPage({
         </div>
       </div>
 
-      <form className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
-        <div className="flex flex-wrap gap-1">
-          <span className="text-xs text-slate-500 self-center pr-1">상태</span>
-          {STATUS_FILTERS.map((f) => (
-            <Link
-              key={f.key}
-              href={`/maintenance?${baseParams({ status: f.key })}`}
-              className={`text-xs px-3 py-1.5 rounded border ${
-                status === f.key
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
+      {/* 연도별 요약 카드 */}
+      {yearSummary.length > 0 && (
+        <div className="bg-white rounded-lg border border-slate-200 p-4">
+          <p className="text-xs font-medium text-slate-500 mb-2">연도별 계약현황 (계약시작일 기준)</p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+            {yearSummary.map((y) => {
+              const isActive = yearParam === y.year;
+              return (
+                <Link
+                  key={y.year}
+                  href={`/maintenance?${baseParams({ year: y.year })}`}
+                  className={`rounded border px-3 py-2 transition ${
+                    isActive
+                      ? 'border-teal-500 bg-teal-50'
+                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
+                  }`}
+                >
+                  <p className={`text-sm font-bold ${isActive ? 'text-teal-900' : 'text-slate-900'}`}>
+                    {y.year}년
+                  </p>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    <b className="tabular-nums">{y.count}건</b>
+                    {y.totalAmount > 0 && (
+                      <>
+                        {' · '}
+                        <b className="tabular-nums">{fmtKrw(y.totalAmount)}원</b>
+                      </>
+                    )}
+                  </p>
+                </Link>
+              );
+            })}
+            {availableYears.length > 0 && (
+              <Link
+                href="/maintenance"
+                className={`rounded border px-3 py-2 transition flex flex-col justify-center ${
+                  yearParam === 'all'
+                    ? 'border-slate-700 bg-slate-100'
+                    : 'border-slate-200 bg-white hover:bg-slate-50'
+                }`}
+              >
+                <p className={`text-sm font-bold ${yearParam === 'all' ? 'text-slate-900' : 'text-slate-700'}`}>
+                  전체
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">{allMou.length}건</p>
+              </Link>
+            )}
+          </div>
         </div>
-        <div className="flex flex-wrap gap-1">
-          <span className="text-xs text-slate-500 self-center pr-1">주체</span>
-          {PARTY_FILTERS.map((f) => (
-            <Link
-              key={f.key}
-              href={`/maintenance?${baseParams({ party: f.key })}`}
-              className={`text-xs px-3 py-1.5 rounded border ${
-                party === f.key
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
-        </div>
+      )}
+
+      {/* 검색 폼 */}
+      <form className="bg-white rounded-lg border border-slate-200 p-4">
         <div className="flex gap-2 items-end">
           <div className="flex-1 min-w-[200px]">
             <input
               type="text"
               name="q"
               defaultValue={q}
-              placeholder="지자체명·담당자·부서·연락처·메모 검색"
+              placeholder="지자체명·담당부서·담당자·연락처·메모 검색"
               className="w-full px-3 py-1.5 border border-slate-300 rounded text-sm"
             />
-            {status !== 'all' && <input type="hidden" name="status" value={status} />}
-            {party !== 'all' && <input type="hidden" name="party" value={party} />}
+            {yearParam !== 'all' && <input type="hidden" name="year" value={yearParam} />}
           </div>
           <button
             type="submit"
@@ -336,7 +340,7 @@ export default async function MaintenanceListPage({
 
       {fetchCapped && (
         <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
-          ⚠ 서버 조회 한도({SERVER_FETCH_CAP}건)에 도달했습니다. 필터를 좁히면 정확한 페이지네이션이 가능합니다.
+          ⚠ 서버 조회 한도({SERVER_FETCH_CAP}건)에 도달했습니다. 연도 필터로 좁히세요.
         </p>
       )}
 
@@ -344,6 +348,7 @@ export default async function MaintenanceListPage({
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-slate-500">
+              {yearParam !== 'all' && <b className="text-slate-700">{yearParam}년 · </b>}
               전체 {totalEntries}건 ·{' '}
               <b className="text-slate-700 tabular-nums">{currentPage}</b> / {totalPages} 페이지
             </span>
