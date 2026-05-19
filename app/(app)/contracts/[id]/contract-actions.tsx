@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   applyCorrection,
+  confirmCompletion,
   deleteContract,
   extendContract,
   startRenewal,
@@ -42,13 +43,38 @@ export default function ContractActions({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<
-    null | 'extend' | 'terminate' | 'renew' | 'correct' | 'delete'
+    null | 'extend' | 'terminate' | 'renew' | 'correct' | 'delete' | 'complete'
   >(null);
+  const [completing, startCompleteTransition] = useTransition();
+  const [completeError, setCompleteError] = useState<string | null>(null);
 
   if (userRole === 'viewer') return null;
 
+  function doConfirmCompletion() {
+    setCompleteError(null);
+    startCompleteTransition(async () => {
+      const r = await confirmCompletion({
+        contractId,
+        expectedVersion: version,
+      });
+      if (r.error) {
+        setCompleteError(r.error);
+        return;
+      }
+      setOpen(null);
+      router.refresh();
+    });
+  }
+
   return (
     <div className="flex flex-wrap gap-2">
+      {(status === 'in_progress' || status === 'updating') && (
+        <ActionBtn
+          label="계약 완료로 변경"
+          tone="green"
+          onClick={() => setOpen('complete')}
+        />
+      )}
       {status === 'completed' && (
         <ActionBtn label="기간 연장" tone="indigo" onClick={() => setOpen('extend')} />
       )}
@@ -137,6 +163,42 @@ export default function ContractActions({
           }}
         />
       )}
+      {open === 'complete' && (
+        <Modal
+          title="계약 완료로 변경"
+          onClose={() => !completing && setOpen(null)}
+        >
+          <p className="text-sm text-slate-700">
+            현재 상태(<b>{STATUS_LABEL[status]}</b>) 에서{' '}
+            <b>「계약완료」</b>로 변경합니다.
+            <br />
+            계속 진행할까요?
+          </p>
+          {completeError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
+              {completeError}
+            </p>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setOpen(null)}
+              disabled={completing}
+              className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={doConfirmCompletion}
+              disabled={completing}
+              className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
+            >
+              {completing ? '처리 중…' : '확인 — 계약완료로 변경'}
+            </button>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -148,7 +210,7 @@ function ActionBtn({
 }: {
   label: string;
   onClick: () => void;
-  tone: 'indigo' | 'blue' | 'slate' | 'amber' | 'danger';
+  tone: 'indigo' | 'blue' | 'slate' | 'amber' | 'danger' | 'green';
 }) {
   const cls = {
     indigo: 'bg-indigo-600 hover:bg-indigo-700 text-white',
@@ -156,6 +218,7 @@ function ActionBtn({
     slate: 'bg-slate-700 hover:bg-slate-800 text-white',
     amber: 'border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900',
     danger: 'bg-rose-600 hover:bg-rose-700 text-white',
+    green: 'bg-emerald-600 hover:bg-emerald-700 text-white',
   }[tone];
   return (
     <button

@@ -299,24 +299,48 @@ export default async function ContractDetailPage({
         />
         </div>
 
-        {writer ? (
-          <UploadCard
-            contractId={contract.id}
-            currentStatus={contract.status}
-            currentVersion={contract.version}
-            existingFileCount={files?.length ?? 0}
-          />
-        ) : (
-          <aside className="bg-white border border-slate-200 rounded-lg p-6">
-            <h2 className="text-sm font-semibold text-slate-900 mb-2">파일</h2>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              조회 권한입니다. 업로드는 비활성화되어 있고, 아래 파일 목록의
-              「미리보기」 버튼으로 PDF 내용을 확인할 수 있습니다.
-              <br />
-              개별 다운로드는 Master/Accounting 권한에서만 가능합니다.
-            </p>
-          </aside>
-        )}
+        <div className="space-y-4">
+          {writer ? (
+            <UploadCard
+              contractId={contract.id}
+              currentStatus={contract.status}
+              currentVersion={contract.version}
+              existingFileCount={files?.length ?? 0}
+            />
+          ) : (
+            <aside className="bg-white border border-slate-200 rounded-lg p-6">
+              <h2 className="text-sm font-semibold text-slate-900 mb-2">파일</h2>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                조회 권한입니다. 업로드는 비활성화되어 있고, 아래 파일 목록의
+                「미리보기」 버튼으로 PDF 내용을 확인할 수 있습니다.
+                <br />
+                개별 다운로드는 Master/Accounting 권한에서만 가능합니다.
+              </p>
+            </aside>
+          )}
+
+          {isMain && supplementInfos.length > 0 && (
+            <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100">
+                <h2 className="text-sm font-semibold text-slate-900">
+                  부속 계약 PDF ({supplementInfos.length})
+                </h2>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  각 부속의 PDF를 직접 업로드하세요. 일자는 메인 상속.
+                </p>
+              </div>
+              <div className="p-3 space-y-3">
+                {supplementInfos.map((s) => (
+                  <SupplementCard
+                    key={s.id}
+                    supplement={s}
+                    canUpload={writer}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       </div>
 
       <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -381,28 +405,6 @@ export default async function ContractDetailPage({
           </table>
         )}
       </section>
-
-      {isMain && supplementInfos.length > 0 && (
-        <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900">
-              부속 계약 ({supplementInfos.length})
-            </h2>
-            <p className="text-[11px] text-slate-500">
-              일자는 메인에서 상속됩니다. 각 부속의 PDF는 아래에서 직접 업로드하세요.
-            </p>
-          </div>
-          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-            {supplementInfos.map((s) => (
-              <SupplementCard
-                key={s.id}
-                supplement={s}
-                canUpload={writer}
-              />
-            ))}
-          </div>
-        </section>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
