@@ -115,6 +115,13 @@ Keep this sequence intact when adding new actions — RLS + trigger + history + 
 
 **IDOR guard for client-supplied IDs.** If an action accepts an ID for a sibling table (e.g. `localGovernmentId` alongside `contractId`), load the contract first and assert the sibling ID matches `contract.local_government_id` (or equivalent) before writing — clients can submit arbitrary UUIDs. See `updateLGContact` in `[id]/actions.ts`.
 
+**Force-flag duplicate-check pattern** (for `create*` actions). Domain allows multiple contracts of the same `(LG, party, type, master_contract_id)` (e.g. parallel during renewal), but accidental duplicates are common. Pattern:
+1. Action schema includes `force: z.boolean().optional().default(false)`
+2. When `!force`, run a preflight `findDuplicates(supabase, v)` that queries living rows (`status != 'terminated' AND deleted_at IS NULL`) matching the same key — for main: `(local_government_id, contracting_party, 'parking_enforcement', master_contract_id IS NULL)`; for supplement: `(master_contract_id, contract_type)`. If hits, return `{ duplicates: DuplicateHit[] }` (no insert).
+3. Client form catches the `duplicates` branch, shows a modal listing existing rows + links, two buttons: 취소 / "그대로 등록" → re-call action with `force: true`.
+
+Canonical implementation: `createContractBatch` + `findDuplicates` in [new/actions.ts](app/(app)/contracts/new/actions.ts), form modal in [new/form.tsx](app/(app)/contracts/new/form.tsx). The action's result type is a discriminated union: `{error}` | `{duplicates}` | `{created}` — order checks accordingly in the form (duplicates first, then error, then success).
+
 **Creation flow has two entry points**: `createContractAction` (single contract — kept for backwards compatibility, not used by current UI) and `createContractBatch` ([app/(app)/contracts/new/actions.ts](app/(app)/contracts/new/actions.ts), used by the new contract form). The batch path inserts main first → captures its id → inserts each checked supplement with `master_contract_id` set, copying main's dates. On partial failure (e.g. main OK, second supplement fails) the error message lists which types succeeded so the user can re-create only the missing ones. PDF uploads run client-side after the batch returns: for each created contract with a file, the form uploads to Storage then calls `registerUploadedFile`. File failures don't roll back contract creation — the user re-uploads from the detail page.
 
 ### Storage
@@ -195,6 +202,7 @@ The seed file reflects the patched codes. If you re-run mapshaper on raw kostat 
 - **Cascade/stale warnings on main edit & terminate.** The detail page computes `aliveSupplementCount` (status≠terminated) and passes it to both `ContractActions` and `EditMetaButton`. `TerminateModal` shows a red cascade warning + requires an explicit "동의" checkbox when terminating a main with live supplements (trigger `trg_cascade_terminate` will auto-terminate them). `EditMetaModal` shows an amber "부속에 자동 반영되지 않습니다" warning when a main's date/auto-renewal fields are edited while live supplements exist (no cascade for updates — see invariant #11).
 - **Filter labels are derived from `STATUS_LABEL` / `TYPE_LABEL` / `PARTY_LABEL`** maps, not hardcoded — `Object.entries(LABEL_MAP)` in [contracts/page.tsx](app/(app)/contracts/page.tsx). Hardcoding (e.g. filter chip "모노플랫폼" vs detail badge "모노플랫폼 직접") creates two names for the same value that drift over time.
 - **Tables wrap with `overflow-x-auto` + `min-w-[N]`** (not `overflow-hidden`) — the contracts/expiring/activity/users tables otherwise clip columns on mobile.
+- **List pagination convention** (currently only `/contracts`): querystring `page` (default 1) + `size` ∈ `{10, 20, 50, 100}` (default 10). Server fetches with `.limit(SERVER_FETCH_CAP=500)` and shows an amber warning when the cap is hit. Client-side slice for the visible page. **Grouping-aware**: when `sort=lg_name`, page by main rows and include each main's supplements on the same page (so a main and its 부속 never split across pages). When sorted by anything else, flat pagination. Filter/sort changes reset `page` to 1; `size` is preserved across navigation. Only the visible page's contract IDs are passed to the `contract_files` fetch — keep that scope minimal.
 
 ### LG contact info & dashboard search
 
@@ -208,21 +216,38 @@ The seed file reflects the patched codes. If you re-run mapshaper on raw kostat 
 
 Uses `SUPABASE_SERVICE_ROLE_KEY` to act as the first available master user. `vercel.json` has the schedule (daily KST 01:00). The underlying RPC `terminate_expired_contracts` uses `contract_effective_expiry()`, so auto-renewing contracts are correctly skipped (their effective expiry always rolls into the future) until `auto_renewal_end_date` is reached.
 
-### Large file export (ZIP)
+### Export routes
 
-`app/api/export/contracts.zip/route.ts` builds an N-file PDF archive. Pattern:
-- `export const runtime = 'nodejs'; export const maxDuration = 300;`
-- `MAX_FILES_PER_ZIP = 500` — slice and note truncation in the `_manifest.txt`
+Four endpoints under `app/api/export/`. All `requireWriter()` (viewer cannot export), all log to `activity_logs` with `event_type='zip_download'` + `after_value.type` discriminator for filtering, all `export const runtime = 'nodejs'`.
+
+**Excel (`exceljs`)** — header row navy `FF1F3864` + white bold text, columns sized for Korean labels:
+- `contracts.xlsx?status=&type=&party=&q=` — full contract list with filters
+- `expiring.xlsx?window=30|60|90` — `/expiring` data; client uses `effectiveExpiry()` + `daysUntil()` in JS, server fetches `status='completed'` rows with `.limit(1000)` then enriches/filters
+- `uncontracted.xlsx?cls=si|gun|gu` — `/uncontracted` data; calls `get_region_stats` RPC, filters live mains = 0, sorts by sido → classification → name. Includes a second "요약" sheet with totals + 계약률.
+
+**ZIP** (`contracts.zip`) — N-file PDF archive. Pattern:
+- `export const maxDuration = 300; const MAX_FILES_PER_ZIP = 500;` — slice and note truncation in `_manifest.txt`
 - **Input is lazy**: each `zip.file(path, asyncPromise)` where the promise resolves to a single PDF Buffer — JSZip pulls them one at a time as the output stream is consumed
 - **Output is streamed**: `zip.generateNodeStream({ streamFiles: true, compression: 'DEFLATE', compressionOptions: { level: 1 } })` wrapped in a manual `new ReadableStream({ start(controller) { ... } })` because `Readable.toWeb()` doesn't accept JSZip's `NodeJS.ReadableStream` interface return type. Compression level 1 because PDFs are already compressed.
 
-Do not switch back to `zip.generateAsync({ type: 'arraybuffer' })` — it buffers the entire archive in lambda memory and OOMs on real-world data (50MB/file × 30 files > 1024MB Vercel limit).
+Do not switch ZIP back to `zip.generateAsync({ type: 'arraybuffer' })` — it buffers the entire archive in lambda memory and OOMs on real-world data (50MB/file × 30 files > 1024MB Vercel limit).
+
+When adding a new export route, the page header puts the "📥 엑셀 내보내기" button on the right side, gated by `canWrite(me.role)` so viewers don't see it. Querystring values flow straight from the page filter into the export URL.
 
 ### Expiring contracts page
 
 `/expiring` (and the dashboard summary) use **30/60/90일** buckets — not the legacy 7/30/60. `get_kpi_summary` returns `expiring_30d / expiring_60d / expiring_90d`. D-day color thresholds: ≤30 red, ≤60 amber, else slate.
 
-The dashboard "만료 임박" table filters `master_contract_id IS NULL` (mains only) — matching `get_region_stats` semantics. The `/expiring` page shows both mains and supplements with `·메인/·부속` badges, and each bucket card displays a "메인 X · 부속 Y" split underneath the count.
+The dashboard "만료 임박" table filters `master_contract_id IS NULL` (mains only) — matching `get_region_stats` and `get_kpi_summary` (both mains-only per invariant #10). The `/expiring` page itself shows both mains and supplements with `·메인/·부속` badges, and each bucket card displays a "메인 X · 부속 Y" split underneath the count.
+
+### Uncontracted (미계약) page
+
+`/uncontracted` lists LGs with no living main contract. **"미계약" 정의**: `s.completed + s.in_progress + s.updating == 0` (a `terminated`-only LG still counts as uncontracted — they need a new contract). Data source: `get_region_stats` RPC (no new RPC — re-slices existing result). Renders:
+- Summary card: count + 계약률 progress bar + per-classification (시/군/구) tile
+- Classification filter chip (전체/시/군/구)
+- Sections grouped by sido (sorted by name), within sido sorted by `classification → sigungu`. Each section shows the per-sido count emphasized in rose, and a small table with No (1..N within sido) / 지자체 / 분류 / 종료 이력 columns
+
+Do not re-add the per-LG contact-info badges or a "+ 신규 등록" inline button — both were tried and explicitly removed for being noise. The page is read-only by design.
 
 ### next.config
 
