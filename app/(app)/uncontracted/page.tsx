@@ -48,26 +48,6 @@ export default async function UncontractedPage({
   const contractedCount = totalLgs - uncontractedCount;
   const contractedRate = totalLgs > 0 ? (contractedCount / totalLgs) * 100 : 0;
 
-  // 담당자 정보 join (미계약 LG 만)
-  const uncontractedIds = uncontracted.map((s) => s.lg_id);
-  const contactMap = new Map<
-    string,
-    { name: string | null; phone: string | null; email: string | null }
-  >();
-  if (uncontractedIds.length > 0) {
-    const { data: lgs } = await supabase
-      .from('local_governments')
-      .select('id, contact_name, contact_phone, contact_email')
-      .in('id', uncontractedIds);
-    for (const l of lgs ?? []) {
-      contactMap.set(l.id, {
-        name: l.contact_name,
-        phone: l.contact_phone,
-        email: l.contact_email,
-      });
-    }
-  }
-
   // 분류 필터 적용
   const filtered = clsFilter === 'all'
     ? uncontracted
@@ -195,61 +175,51 @@ export default async function UncontractedPage({
             return (
               <section
                 key={sido}
-                className="bg-white border border-slate-200 rounded-lg overflow-hidden"
+                className="bg-white border border-slate-200 rounded-lg overflow-x-auto"
               >
-                <header className="px-4 py-2 border-b border-slate-100 flex items-center justify-between bg-slate-50">
+                <header className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between gap-3 bg-slate-50">
                   <h2 className="text-sm font-semibold text-slate-900">{sido}</h2>
-                  <span className="text-xs text-slate-500 tabular-nums">{items.length}건</span>
+                  <span className="text-xs font-medium text-rose-700 tabular-nums">
+                    미계약 <b className="text-base">{items.length}</b>건
+                  </span>
                 </header>
-                <ul className="divide-y divide-slate-100">
-                  {items.map((s) => {
-                    const contact = contactMap.get(s.lg_id);
-                    const hasContact = !!(
-                      contact?.name ||
-                      contact?.phone ||
-                      contact?.email
-                    );
-                    return (
-                      <li
-                        key={s.lg_id}
-                        className="px-4 py-2.5 flex items-center justify-between gap-3 hover:bg-slate-50"
-                      >
-                        <div className="flex items-center gap-2 flex-wrap min-w-0">
-                          <span className="text-sm text-slate-900 truncate">
-                            {s.full_name}
-                          </span>
+                <table className="w-full text-sm min-w-[480px]">
+                  <thead>
+                    <tr className="text-[11px] text-slate-500 bg-slate-50/50">
+                      <th className="text-left px-4 py-1.5 font-medium w-12">No</th>
+                      <th className="text-left px-4 py-1.5 font-medium">지자체</th>
+                      <th className="text-left px-4 py-1.5 font-medium w-20">분류</th>
+                      <th className="text-left px-4 py-1.5 font-medium">비고</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((s, idx) => (
+                      <tr key={s.lg_id} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-2 text-slate-500 tabular-nums">{idx + 1}</td>
+                        <td className="px-4 py-2 text-slate-900">{s.full_name}</td>
+                        <td className="px-4 py-2">
                           <span
                             className={`inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset ${CLASS_BADGE[s.classification]}`}
                           >
                             {CLASS_LABEL[s.classification]}
                           </span>
-                          {s.terminated > 0 && (
+                        </td>
+                        <td className="px-4 py-2">
+                          {s.terminated > 0 ? (
                             <span
                               className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset bg-amber-50 text-amber-700 ring-amber-600/20"
                               title="과거 종료된 계약이 있음"
                             >
                               종료 이력 {s.terminated}
                             </span>
+                          ) : (
+                            <span className="text-[11px] text-slate-300">-</span>
                           )}
-                          {!hasContact && (
-                            <span
-                              className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset bg-rose-50 text-rose-700 ring-rose-600/20"
-                              title="LG 담당자 정보 미등록 — 영업 액션 전에 담당자 정보를 등록하세요"
-                            >
-                              📞 담당자 미등록
-                            </span>
-                          )}
-                        </div>
-                        <Link
-                          href={`/contracts/new?lg=${s.lg_id}`}
-                          className="text-xs font-medium px-3 py-1 bg-orange-500 hover:bg-orange-600 text-white rounded whitespace-nowrap"
-                        >
-                          + 신규 등록
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </section>
             );
           })}
