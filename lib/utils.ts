@@ -45,7 +45,7 @@ export const PARTY_BADGE: Record<ContractingParty, string> = {
 export const TYPE_LABEL: Record<ContractType, string> = {
   parking_enforcement: '주차단속 위수탁',
   personal_info_outsourcing: '개인정보 위수탁',
-  mou: 'MOU',
+  mou: '유지보수',
   other: '기타',
 };
 

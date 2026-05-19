@@ -217,6 +217,30 @@ export default async function ContractsListPage({
       };
     }
   }
+
+  // 메인 행에 "유지보수 보유" 보조 배지 표시용 — 현재 페이지의 메인 ID 들에 대해
+  // 살아있는(status!=terminated) 유지보수(mou) 부속이 있는지 별도 조회.
+  // 사용자가 type/status 필터를 걸어도 이 표시는 독립적으로 정확해야 하므로 별도 쿼리.
+  const visibleMainIds = paged
+    .filter((c) => !c.master_contract_id)
+    .map((c) => c.id);
+  const maintenanceMainIds: string[] = [];
+  if (visibleMainIds.length > 0) {
+    const { data: mouSupps } = await supabase
+      .from('contracts')
+      .select('master_contract_id')
+      .in('master_contract_id', visibleMainIds)
+      .eq('contract_type', 'mou')
+      .neq('status', 'terminated')
+      .is('deleted_at', null);
+    const seen = new Set<string>();
+    for (const r of mouSupps ?? []) {
+      if (r.master_contract_id && !seen.has(r.master_contract_id)) {
+        seen.add(r.master_contract_id);
+        maintenanceMainIds.push(r.master_contract_id);
+      }
+    }
+  }
   const userCanDownload = canWrite(me.role);
   const userCanEdit = canWrite(me.role);
 
@@ -395,6 +419,7 @@ export default async function ContractsListPage({
       <ContractsTable
         rows={paged}
         fileMap={fileMap}
+        maintenanceMainIds={maintenanceMainIds}
         userCanDownload={userCanDownload}
         userCanEdit={userCanEdit}
         groupByLg={groupByLg}

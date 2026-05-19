@@ -54,6 +54,7 @@ export type SortKey =
 export default function ContractsTable({
   rows,
   fileMap,
+  maintenanceMainIds,
   userCanDownload,
   userCanEdit,
   groupByLg,
@@ -62,6 +63,8 @@ export default function ContractsTable({
 }: {
   rows: ContractRow[];
   fileMap: Record<string, ContractFile>;
+  /** 메인 행에 "+유지보수" 보조 뱃지를 띄울 메인 ID 목록 — 살아있는 유지보수 부속 보유 메인. */
+  maintenanceMainIds: string[];
   userCanDownload: boolean;
   userCanEdit: boolean;
   /** lg_name 정렬 시에만 그루핑 표시 사용. 그 외 정렬에서는 펼치기 비활성. */
@@ -69,6 +72,10 @@ export default function ContractsTable({
   sortLinks: Record<SortKey, string>;
   sortArrows: Record<SortKey, string>;
 }) {
+  const maintenanceSet = useMemo(
+    () => new Set(maintenanceMainIds),
+    [maintenanceMainIds],
+  );
   // 메인 계약 ID → 부속 ID 배열
   const supplementsByMain = useMemo(() => {
     const map = new Map<string, ContractRow[]>();
@@ -245,7 +252,17 @@ export default function ContractsTable({
                   </div>
                 </td>
                 <td className="px-4 py-2">
-                  <TypeBadge ctype={c.contract_type} isSupplement={isSupplement} />
+                  <div className="inline-flex items-center gap-1 flex-wrap">
+                    <TypeBadge ctype={c.contract_type} isSupplement={isSupplement} />
+                    {!isSupplement && maintenanceSet.has(c.id) && (
+                      <span
+                        className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset ring-teal-200 bg-teal-50 text-teal-800"
+                        title="유지보수 부속 계약 보유"
+                      >
+                        + 유지보수
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-2">
                   <PartyBadge party={c.contracting_party} />
