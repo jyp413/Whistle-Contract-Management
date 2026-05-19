@@ -40,7 +40,7 @@ Use the Supabase MCP server, **not** local migration files:
 
 The `Database` type in `lib/types/database.ts` is hand-maintained. Keep the `Relationships: [...]` arrays — supabase-js's PostgREST inference falls back to `never` without them, breaking `.select()` types.
 
-Public RPCs currently exposed: `get_kpi_summary`, `get_region_stats`, `apply_correction`, `terminate_expired_contracts`, `current_user_role`. The trigger-only `handle_new_auth_user` / `handle_auth_user_email_changed` have EXECUTE revoked from anon/authenticated.
+Public RPCs currently exposed: `get_kpi_summary`, `get_region_stats`, `apply_correction`, `soft_delete_contract_file`, `terminate_expired_contracts`, `current_user_role`, `contract_effective_expiry`. `soft_delete_contract_file` is SECURITY DEFINER and exists because the `contract_files.files_select_all` policy (USING `deleted_at IS NULL`) makes direct `UPDATE deleted_at=NOW()` from supabase-js fail with a post-update RLS violation — see the **RLS-filtered RETURNING trap** below. `contract_effective_expiry(expiry, extended_expiry, auto_renewal, period_months, end_date)` is the SQL-side SSOT for effective expiry (see invariant #2 below). The trigger-only `handle_new_auth_user` / `handle_auth_user_email_changed` / `validate_master_contract_link` / `cascade_terminate_supplements` have EXECUTE revoked from anon/authenticated.
 
 ## Architecture
 
@@ -49,10 +49,18 @@ Public RPCs currently exposed: `get_kpi_summary`, `get_region_stats`, `apply_cor
 This is a **계약 건 (contract) 단위 상태 관리 시스템**. Key invariants that span multiple files:
 
 1. **Status lives only on `contracts.status`.** Never derive status from history. One 지자체 holds N contracts independently — distinguished by (`contracting_party`, `contract_type`, `master_contract_id`).
-2. **Effective expiry** = `COALESCE(extended_expiry_date, expiry_date)`. Always compute via `effectiveExpiry()` in `lib/utils.ts` — never compare `expiry_date` raw. **Entry-time guard:** `createContractAction` ([app/(app)/contracts/new/actions.ts](app/(app)/contracts/new/actions.ts)) and `updateContractMeta` ([app/(app)/contracts/[id]/actions.ts](app/(app)/contracts/[id]/actions.ts)) both reject `expiry_date < today` unless `extended_expiry_date` is also provided and itself `≥ today` — keeps active contracts from sitting in an "expired but marked active" state. When the form ships both columns at creation, the action also writes a `contract_extensions` row with `reason='초기 등록 시 입력된 연장 정보'` so history stays consistent with later `extendContract` activity.
+2. **Effective expiry is not a simple COALESCE.** Three cases, in priority order:
+   1. `extended_expiry_date` if set (one-time manual extension wins),
+   2. else if `auto_renewal=true` and `auto_renewal_period_months` is set → roll `expiry_date` forward by N*period months until ≥ today, capped by `auto_renewal_end_date` if set,
+   3. else `expiry_date`.
+
+   Two **mirrored** implementations: `effectiveExpiry()` in [lib/utils.ts](lib/utils.ts) (JS — used by every page/server action that touches dates) and SQL function `public.contract_effective_expiry(...)` (used by `get_kpi_summary` and `terminate_expired_contracts`). **If you change the algorithm, change both.** Never inline `COALESCE(extended_expiry_date, expiry_date)` anywhere — it silently breaks auto-renewing contracts.
+
+   **Entry-time guard:** `createContractBatch` / `createContractAction` ([app/(app)/contracts/new/actions.ts](app/(app)/contracts/new/actions.ts)) and `updateContractMeta` ([app/(app)/contracts/[id]/actions.ts](app/(app)/contracts/[id]/actions.ts)) reject `expiry_date < today` **unless** `extended_expiry_date` is also provided and itself `≥ today` **or** `auto_renewal=true` (auto-renewal rolls expiry forward automatically). When the form ships `extended_expiry_date` at creation, the action also writes a `contract_extensions` row with `reason='초기 등록 시 입력된 연장 정보'` so history stays consistent with later `extendContract` activity.
 8. **Main vs supplement (`master_contract_id`).** `contract_type='parking_enforcement'` is the **main** contract type and must have `master_contract_id IS NULL`. Other types (`personal_info_outsourcing`, `mou`, `other`) are **supplements** that must point to a main contract in the *same LG* via `master_contract_id`. Enforced by trigger `trg_validate_master_link` ([validate_master_contract_link()](.) function — BEFORE INSERT/UPDATE). Don't reuse `parent_contract_id` (which tracks renewal chains) for this — they are orthogonal concepts.
 9. **Main termination cascades to supplements.** Trigger `trg_cascade_terminate` (SECURITY DEFINER) — when a main contract transitions to `terminated`, all of its alive supplements are auto-terminated with `termination_reason='메인 계약 종료에 따른 자동 종료'`, plus matching `contract_status_history` (`trigger_event='cascade_terminate'`) and `activity_logs` (`event_type='cascade_terminate'`) rows. UI should warn before terminating a main with supplements.
 10. **`get_region_stats` counts main contracts only** (`master_contract_id IS NULL`). Supplements don't inflate the dashboard map / region stats. If you change the count semantics, also update this RPC.
+11. **Supplements inherit dates from their main.** The batch create flow ([createContractBatch](app/(app)/contracts/new/actions.ts)) copies `signed_date / effective_date / expiry_date / extended_expiry_date / auto_renewal*` from the main into each supplement row at INSERT time. This is the domain rule ("부속은 메인에 종속") materialized into denormalized columns — there's no foreign read of master at runtime. Cascade-terminate already handles end-of-life; no equivalent cascade exists yet for date *updates* on the main, so if you later extend a main, supplements stay stale unless the user explicitly edits them.
 3. **History tables are INSERT-ONLY.** A DB trigger rejects UPDATE/DELETE on `contract_status_history`, `contract_extensions`, `activity_logs`. Don't try to "fix" rows by editing — append corrections.
 4. **Status transitions are whitelisted by trigger** `validate_contract_status_transition()`. Only six pairs are allowed; everything else raises `check_violation`.
 5. **Corrections bypass the trigger** via `apply_correction` RPC, which sets `app.in_correction='true'` GUC inside a SECURITY DEFINER function. The trigger checks the GUC. Never UPDATE status backwards from the app — always go through the RPC.
@@ -98,6 +106,8 @@ All write paths follow this shape (see `app/(app)/contracts/[id]/actions.ts` for
 
 Keep this sequence intact when adding new actions — RLS + trigger + history + log together is the audit guarantee.
 
+**Creation flow has two entry points**: `createContractAction` (single contract — kept for backwards compatibility, not used by current UI) and `createContractBatch` ([app/(app)/contracts/new/actions.ts](app/(app)/contracts/new/actions.ts), used by the new contract form). The batch path inserts main first → captures its id → inserts each checked supplement with `master_contract_id` set, copying main's dates. On partial failure (e.g. main OK, second supplement fails) the error message lists which types succeeded so the user can re-create only the missing ones. PDF uploads run client-side after the batch returns: for each created contract with a file, the form uploads to Storage then calls `registerUploadedFile`. File failures don't roll back contract creation — the user re-uploads from the detail page.
+
 ### Storage
 
 Bucket `contract-files` is private, 50MB cap, PDF mime-type enforced at the bucket level. Uploads go directly from the browser via `supabase.storage.from('contract-files').upload(path)`, then a server action `registerUploadedFile` creates the `contract_files` row, decrements old rows' `is_latest`, and writes the activity log. The partial unique index `idx_files_one_latest` guarantees at most one `is_latest=TRUE` row per contract.
@@ -118,16 +128,21 @@ Drill-down choropleth on `/dashboard`. **Three view levels** (2-tier or 3-tier d
 
 Data flow:
 - DB: `local_governments.geo_code` (5-digit text) is the join key from LG ↔ topojson polygon. Seed in `document/seed_local_governments_geo_code.sql`.
-- RPC: `get_region_stats` returns `LgStat[]` (per-LG counts per status, security-invoker so RLS applies). Type in `lib/map/types.ts`.
+- RPC: `get_region_stats` returns `LgStat[]` (per-LG counts per status + `completed_monoplatform` / `completed_imcity` breakdown for color decisions, security-invoker so RLS applies). **Only counts main contracts (`master_contract_id IS NULL`)** — supplements don't inflate map stats. Type in `lib/map/types.ts`.
 - Static asset: `public/geo/korea-admin.topo.json` (~870KB) — `objects.sido` + `objects.sigungu`, each feature has `properties: { code, name }`.
-- Client: `components/map/region-map.tsx` (`d3-geo` + `topojson-client`) renders SVG; breadcrumb (`region-breadcrumb.tsx`) + side panel (`region-leaf-panel.tsx`).
-- Pure helpers (no React, reusable): `lib/map/derive.ts`, `match.ts`, `rate.ts`.
+- Client: `components/map/region-map.tsx` (`d3-geo` + `topojson-client`) renders SVG; breadcrumb (`region-breadcrumb.tsx`) + three side panels:
+  - `region-nation-panel.tsx` — nation view default (시도별 합계 카드)
+  - `region-sido-panel.tsx` — sido view default (광역시도 내 시군구별 체결 현황)
+  - `region-leaf-panel.tsx` — leaf 클릭 시
+- Pure helpers (no React, reusable): `lib/map/derive.ts`, `match.ts`, `rate.ts`, `aggregate-by-sido.ts`.
 
-**Coverage rate** (the value driving the choropleth color and `XX%` label) is defined in `lib/map/rate.ts`:
-```
-coverage = (지역 내 'completed' 1건 이상 보유 LG 수) / (지역 내 전체 LG 수)
-```
-Single function `coverageRate(lgs)`. Swap point if the formula changes.
+**Polygon color** (`lib/map/rate.ts` `partyRateColor`) combines two axes:
+1. **Tint** = contracting_party 우선순위 — `completed_monoplatform > 0` 면 orange, else `completed_imcity > 0` 면 sky, else 회색 slate-200
+2. **Shade** = `coverageRate` (해당 폴리곤 내 `completed > 0` LG 비율) → 6-bucket Tailwind 단계 100~600 (예: orange-100 ~ orange-600)
+
+If the color formula changes, swap there. The legacy single-color `colorClass(rate)` is kept for non-map callers but unused by the map itself.
+
+**제주·울릉 inset transform** (nation view only): polygon code prefix `50*` (제주) and `37320` (울릉) get rendered inside an SVG `<g transform="translate(...) scale(...)">` so the mainland fitExtent can ignore them — 본토가 더 크게 보임. 좌표는 `size` 비율 기반(좌하단 = 제주, 우상단 = 울릉). sido/si view에서는 inset 비활성.
 
 **TopoJSON manual property patches** (do NOT regenerate from raw kostat without re-applying):
 - polygon `22320` `군위군` — original kostat code was `37310` (경상북도). 2023-07 transferred to 대구; we move the polygon into the `22` (대구) prefix so 대구 sido drill-down includes 군위군. DB `geo_code` matches `22320`.
@@ -149,12 +164,25 @@ The seed file reflects the patched codes. If you re-run mapshaper on raw kostat 
 - Modals/forms that need state are client components in the same folder (`upload-card.tsx`, `contract-actions.tsx`, etc.).
 - Date inputs handle nullable dates by passing `''` as the empty value, converted to `null` in the action.
 - Status enum values come from `Database['public']['Enums']['contract_status']`. Do not redefine them as string literals.
-- All visible labels use the maps in `lib/utils.ts` (`STATUS_LABEL`, `ROLE_LABEL`, etc.) — keep these in sync with the DB ENUMs.
+- All visible labels use the maps in `lib/utils.ts` (`STATUS_LABEL`, `PARTY_LABEL`, `TYPE_LABEL`, `ROLE_LABEL`, etc.) — keep these in sync with the DB ENUMs. Badge color classes follow the same `_BADGE` pattern.
 - Reusable success popup: `app/components/success-modal.tsx`. Use this for write-action completion (signed-in users want explicit acknowledgement before navigating away).
+- Reusable LG selector: `app/components/lg-combobox.tsx` ([LgCombobox](app/components/lg-combobox.tsx)). Search-as-you-type with keyboard nav + match highlighting; the new contract form pairs it with the legacy cascading sido/sigungu dropdowns so users can use whichever they prefer (both bind to the same `lg_id` state).
+- **Brand**: orange-500 is the primary action color (login button, "등록" button, auto-renewal badge). Logo is `public/logo-whistle.png` (휘슬 CI from 010car.kr) — shown in the `(app)` header and on `/login`, `/signup`, `/pending`.
+- **Manage supplements from main's detail page.** When a main contract's detail page renders, it fetches its supplements + each supplement's latest file and shows them in a "부속 계약 (N)" section via `SupplementCard` ([app/(app)/contracts/[id]/supplement-card.tsx](app/(app)/contracts/[id]/supplement-card.tsx)) — each card has its own client-side PDF upload (Storage upload + `registerUploadedFile` against the supplement's contract id). This avoids forcing users to navigate to each supplement's detail page just to attach a file. Each supplement still has its own detail page reachable via the "상세 →" link in the card.
+- **Contract list groups supplements under main.** `ContractsTable` ([app/(app)/contracts/contracts-table.tsx](app/(app)/contracts/contracts-table.tsx)) is a client component that detects supplements (via `master_contract_id`) and hides them by default behind a `+` toggle on each main row, with a "전부 펼치기/접기" header. Active only when sorting by `lg_name`; other sorts render flat. The server page does data fetching/sorting; the client component owns expand state.
+
+### LG contact info & dashboard search
+
+- **Per-LG contact** (4 columns on `local_governments`: `contact_department`, `contact_name`, `contact_phone`, `contact_email`) is shared across all of an LG's contracts (main + supplements). Edited via `updateLGContact` action ([app/(app)/contracts/[id]/actions.ts](app/(app)/contracts/[id]/actions.ts)) and rendered as `LGContactCard` on the contract detail page. Activity log: `event_type='contract_update'`, `target_type='local_government'`.
+- **Dashboard search** (`searchAll` server action, [app/(app)/dashboard/actions.ts](app/(app)/dashboard/actions.ts)) does ILIKE across: `contracts.memo` / `termination_reason`, `local_governments.full_name` + 4 contact columns, `contract_files.original_filename`. Returns contract hits with a `matches: SearchMatch[]` array so the UI can chip-tag which field matched. Min 2 chars; 100 hit cap. Available to all authenticated roles (RLS still constrains visibility).
 
 ### Cron / batch endpoints
 
-`app/api/cron/terminate-expired/route.ts` is the only scheduled endpoint. It requires `CRON_SECRET` and uses `SUPABASE_SERVICE_ROLE_KEY` to act as the first available master user. `vercel.json` has the schedule (daily KST 01:00).
+`app/api/cron/terminate-expired/route.ts` is the only scheduled endpoint. It requires `CRON_SECRET` and uses `SUPABASE_SERVICE_ROLE_KEY` to act as the first available master user. `vercel.json` has the schedule (daily KST 01:00). The underlying RPC `terminate_expired_contracts` uses `contract_effective_expiry()`, so auto-renewing contracts are correctly skipped (their effective expiry always rolls into the future) until `auto_renewal_end_date` is reached.
+
+### Expiring contracts page
+
+`/expiring` (and the dashboard summary) use **30/60/90일** buckets — not the legacy 7/30/60. `get_kpi_summary` returns `expiring_30d / expiring_60d / expiring_90d`. D-day color thresholds: ≤30 red, ≤60 amber, else slate.
 
 ## Local conventions
 
