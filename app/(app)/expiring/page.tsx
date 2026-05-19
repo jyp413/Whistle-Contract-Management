@@ -5,6 +5,7 @@ import {
   daysUntil,
   effectiveExpiry,
   fmtDate,
+  canWrite,
 } from '@/lib/utils';
 import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 
@@ -21,10 +22,11 @@ export default async function ExpiringPage({
 }: {
   searchParams: Promise<{ window?: string }>;
 }) {
-  await requireUser();
+  const me = await requireUser();
   const sp = await searchParams;
   const win = parseInt(sp.window ?? '90', 10);
   const validWindow = [30, 60, 90].includes(win) ? win : 90;
+  const writer = canWrite(me.role);
 
   const supabase = await createClient();
   const { data: contracts, error } = await supabase
@@ -62,20 +64,30 @@ export default async function ExpiringPage({
       </Link>
       <div className="flex items-center justify-between flex-wrap gap-2">
         <h1 className="text-xl font-bold text-slate-900">만료 임박 계약</h1>
-        <div className="flex gap-1">
-          {[30, 60, 90].map((w) => (
-            <Link
-              key={w}
-              href={`/expiring?window=${w}`}
-              className={`text-xs px-3 py-1.5 rounded border ${
-                validWindow === w
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            {[30, 60, 90].map((w) => (
+              <Link
+                key={w}
+                href={`/expiring?window=${w}`}
+                className={`text-xs px-3 py-1.5 rounded border ${
+                  validWindow === w
+                    ? 'bg-slate-900 border-slate-900 text-white'
+                    : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                {w}일 이내
+              </Link>
+            ))}
+          </div>
+          {writer && (
+            <a
+              href={`/api/export/expiring.xlsx?window=${validWindow}`}
+              className="text-xs font-medium px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 rounded text-slate-800"
             >
-              {w}일 이내
-            </Link>
-          ))}
+              📥 엑셀 내보내기
+            </a>
+          )}
         </div>
       </div>
 

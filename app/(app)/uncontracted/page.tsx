@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
+import { canWrite } from '@/lib/utils';
 import type { LgStat, LgClass } from '@/lib/map/types';
 
 export const dynamic = 'force-dynamic';
@@ -29,11 +30,12 @@ export default async function UncontractedPage({
 }: {
   searchParams: Promise<{ cls?: string }>;
 }) {
-  await requireUser();
+  const me = await requireUser();
   const sp = await searchParams;
   const clsFilter = (['si', 'gun', 'gu'] as const).includes(sp.cls as LgClass)
     ? (sp.cls as LgClass)
     : 'all';
+  const writer = canWrite(me.role);
 
   const supabase = await createClient();
   const { data: statsRaw, error: statsErr } = await supabase.rpc('get_region_stats');
@@ -90,11 +92,21 @@ export default async function UncontractedPage({
         <span aria-hidden>←</span> 대시보드
       </Link>
 
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">미계약 현황</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          살아있는 메인 계약이 없는 지자체 목록 — 신규 영업·연락 대상
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">미계약 현황</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            살아있는 메인 계약이 없는 지자체 목록 — 신규 영업·연락 대상
+          </p>
+        </div>
+        {writer && (
+          <a
+            href={`/api/export/uncontracted.xlsx${clsFilter === 'all' ? '' : `?cls=${clsFilter}`}`}
+            className="text-xs font-medium px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 rounded text-slate-800"
+          >
+            📥 엑셀 내보내기
+          </a>
+        )}
       </div>
 
       {statsErr && (
