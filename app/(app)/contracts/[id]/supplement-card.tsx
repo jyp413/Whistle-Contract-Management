@@ -51,6 +51,7 @@ export default function SupplementCard({
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
 
   async function handleUpload(file: File) {
     setError(null);
@@ -165,14 +166,36 @@ export default function SupplementCard({
 
       {canUpload && (
         <div>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => fileRef.current?.click()}
-            className="text-xs px-3 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 rounded disabled:opacity-50"
+          <div
+            onClick={() => !busy && fileRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!busy) setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              if (busy) return;
+              const f = e.dataTransfer.files?.[0];
+              if (f) handleUpload(f);
+            }}
+            role="button"
+            tabIndex={0}
+            aria-disabled={busy}
+            className={`flex flex-col items-center justify-center text-center px-3 py-3 rounded border-2 border-dashed cursor-pointer transition ${
+              dragOver
+                ? 'border-orange-500 bg-orange-50'
+                : 'border-slate-300 hover:border-orange-400 hover:bg-slate-50'
+            } ${busy ? 'opacity-60 pointer-events-none' : ''}`}
           >
-            {busy ? '처리 중…' : latest ? '새 버전 업로드' : 'PDF 업로드'}
-          </button>
+            <p className="text-xs font-medium text-slate-800">
+              {busy ? '처리 중…' : latest ? '새 버전 업로드' : 'PDF 업로드'}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              클릭 또는 파일 드래그
+            </p>
+          </div>
           <input
             ref={fileRef}
             type="file"

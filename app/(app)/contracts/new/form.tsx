@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -624,6 +624,9 @@ function ContractTypeRow({
   slot: FileSlot;
   onFileChange: (f: File | null) => void;
 }) {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [dragOver, setDragOver] = useState(false);
+
   return (
     <div
       className={`rounded border p-3 ${
@@ -646,24 +649,54 @@ function ContractTypeRow({
       </label>
       {checked && (
         <div className="mt-2 pl-6">
-          <label className="block text-[11px] text-slate-600 mb-1">
-            PDF 첨부 <span className="text-slate-400">(선택 — 나중에 상세 화면에서도 업로드 가능)</span>
-          </label>
+          <p className="text-[11px] text-slate-600 mb-1">
+            PDF 첨부{' '}
+            <span className="text-slate-400">
+              (선택 — 나중에 상세 화면에서도 업로드 가능)
+            </span>
+          </p>
+          <div
+            onClick={() => fileRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const f = e.dataTransfer.files?.[0];
+              if (f) onFileChange(f);
+            }}
+            role="button"
+            tabIndex={0}
+            className={`flex flex-col items-center justify-center text-center px-3 py-3 rounded border-2 border-dashed cursor-pointer transition ${
+              dragOver
+                ? 'border-orange-500 bg-orange-100'
+                : 'border-slate-300 hover:border-orange-400 hover:bg-white'
+            }`}
+          >
+            <p className="text-xs font-medium text-slate-800">
+              {slot.file ? '다른 파일로 교체' : '클릭해서 PDF 선택'}
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              또는 이 영역에 드래그
+            </p>
+          </div>
           <input
+            ref={fileRef}
             type="file"
             accept="application/pdf,.pdf"
             onChange={(e) => onFileChange(e.target.files?.[0] ?? null)}
-            className="text-xs file:mr-2 file:px-2 file:py-1 file:rounded file:border file:border-slate-300 file:bg-white file:text-slate-700 file:cursor-pointer"
+            className="hidden"
           />
           {slot.file && (
-            <p className="text-[11px] text-slate-600 mt-1">
-              선택됨: {slot.file.name} ({(slot.file.size / 1024 / 1024).toFixed(2)} MB)
+            <p className="text-[11px] text-slate-700 mt-1">
+              ✓ 선택됨: <b>{slot.file.name}</b> ({(slot.file.size / 1024 / 1024).toFixed(2)} MB)
             </p>
           )}
           {slot.status === 'error' && slot.message && (
-            <p className="text-[11px] text-red-600 mt-1">
-              ✗ {slot.message}
-            </p>
+            <p className="text-[11px] text-red-600 mt-1">✗ {slot.message}</p>
           )}
           {slot.status === 'done' && (
             <p className="text-[11px] text-emerald-700 mt-1">✓ 업로드 완료</p>
