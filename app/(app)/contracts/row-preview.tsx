@@ -1,13 +1,28 @@
 'use client';
 
 import { useState } from 'react';
-import FilePreviewButton from './[id]/file-preview';
+import dynamic from 'next/dynamic';
+import Modal from '@/app/components/modal';
+
+// pdfjs/react-pdf 는 ~500KB. list 페이지 초기 번들에 포함되지 않도록 lazy.
+const FilePreviewButton = dynamic(() => import('./[id]/file-preview'), {
+  ssr: false,
+  loading: () => (
+    <button
+      type="button"
+      disabled
+      className="text-xs px-2.5 py-1 border border-slate-200 bg-slate-50 text-slate-400 rounded"
+    >
+      미리보기
+    </button>
+  ),
+});
 
 export default function RowPreview({
   file,
   canDownload,
 }: {
-  file: { storage_path: string; original_filename: string } | null;
+  file: { id: string; original_filename: string } | null;
   canDownload: boolean;
 }) {
   const [showNoFile, setShowNoFile] = useState(false);
@@ -15,7 +30,7 @@ export default function RowPreview({
   if (file) {
     return (
       <FilePreviewButton
-        storagePath={file.storage_path}
+        fileId={file.id}
         filename={file.original_filename}
         canDownload={canDownload}
       />
@@ -36,16 +51,8 @@ export default function RowPreview({
         미리보기
       </button>
       {showNoFile && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
-          onClick={() => setShowNoFile(false)}
-          role="dialog"
-          aria-modal="true"
-        >
-          <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6 text-center"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <Modal onClose={() => setShowNoFile(false)} maxWidth="sm" ariaLabel="PDF 파일 없음">
+          <div className="text-center">
             <div className="mx-auto w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center text-2xl mb-3">
               !
             </div>
@@ -67,7 +74,7 @@ export default function RowPreview({
               확인
             </button>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );

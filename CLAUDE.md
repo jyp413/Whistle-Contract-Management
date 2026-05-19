@@ -62,6 +62,13 @@ This is a **계약 건 (contract) 단위 상태 관리 시스템**. Key invarian
 10. **`get_region_stats` counts main contracts only** (`master_contract_id IS NULL`). Supplements don't inflate the dashboard map / region stats. If you change the count semantics, also update this RPC.
 11. **Supplements inherit dates from their main.** The batch create flow ([createContractBatch](app/(app)/contracts/new/actions.ts)) copies `signed_date / effective_date / expiry_date / extended_expiry_date / auto_renewal*` from the main into each supplement row at INSERT time. This is the domain rule ("부속은 메인에 종속") materialized into denormalized columns — there's no foreign read of master at runtime. Cascade-terminate already handles end-of-life; no equivalent cascade exists yet for date *updates* on the main, so if you later extend a main, supplements stay stale unless the user explicitly edits them.
 3. **History tables are INSERT-ONLY.** A DB trigger rejects UPDATE/DELETE on `contract_status_history`, `contract_extensions`, `activity_logs`. Don't try to "fix" rows by editing — append corrections.
+
+   **Every history/log insert must capture `error` and `console.error` on failure.** Server actions write logs as the user's JWT, so if the `logs_insert_self` policy or any other RLS clause is misconfigured, PostgREST returns the error inside the response body (no JS throw). Fire-and-forget `await sb.from('activity_logs').insert(...)` would silently drop audit rows while the action reports success. Canonical pattern:
+   ```ts
+   const { error: logErr } = await sb.from('activity_logs').insert({...});
+   if (logErr) console.error('[actionName] activity_logs insert failed:', logErr);
+   ```
+   Same applies to `contract_status_history` and `contract_extensions` inserts in every action.
 4. **Status transitions are whitelisted by trigger** `validate_contract_status_transition()`. Only six pairs are allowed; everything else raises `check_violation`.
 5. **Corrections bypass the trigger** via `apply_correction` RPC, which sets `app.in_correction='true'` GUC inside a SECURITY DEFINER function. The trigger checks the GUC. Never UPDATE status backwards from the app — always go through the RPC.
 6. **`contracts.version` is an optimistic lock.** Every mutation reads `version`, updates with `WHERE version = expected`, and treats `affected_rows = 0` as conflict (HTTP 409 / refresh prompt). The pattern is repeated in every action in `app/(app)/contracts/[id]/actions.ts`.
@@ -99,12 +106,14 @@ All write paths follow this shape (see `app/(app)/contracts/[id]/actions.ts` for
 1. Server action with `'use server'`
 2. `await requireWriter()` (or master)
 3. Read current row, check business preconditions including `version`
-4. Update `contracts` with `eq('version', expected)`, return `{ error }` if no row affected
-5. Insert into appropriate history table
-6. Insert into `activity_logs`
+4. Update `contracts` with `{ count: 'exact' }` + `eq('version', expected)`; treat both `error` and `!count` as conflict. **Do NOT use `.select().maybeSingle()` for soft-delete-style updates** (see RLS-filtered RETURNING trap) — and even for non-soft-delete updates the `count: 'exact'` pattern is what every existing action uses
+5. Insert into appropriate history table — **capture error and `console.error`** (see invariant #3)
+6. Insert into `activity_logs` — same error-capture rule
 7. `revalidatePath(\`/contracts/${id}\`)` and return result
 
 Keep this sequence intact when adding new actions — RLS + trigger + history + log together is the audit guarantee.
+
+**IDOR guard for client-supplied IDs.** If an action accepts an ID for a sibling table (e.g. `localGovernmentId` alongside `contractId`), load the contract first and assert the sibling ID matches `contract.local_government_id` (or equivalent) before writing — clients can submit arbitrary UUIDs. See `updateLGContact` in `[id]/actions.ts`.
 
 **Creation flow has two entry points**: `createContractAction` (single contract — kept for backwards compatibility, not used by current UI) and `createContractBatch` ([app/(app)/contracts/new/actions.ts](app/(app)/contracts/new/actions.ts), used by the new contract form). The batch path inserts main first → captures its id → inserts each checked supplement with `master_contract_id` set, copying main's dates. On partial failure (e.g. main OK, second supplement fails) the error message lists which types succeeded so the user can re-create only the missing ones. PDF uploads run client-side after the batch returns: for each created contract with a file, the form uploads to Storage then calls `registerUploadedFile`. File failures don't roll back contract creation — the user re-uploads from the detail page.
 
@@ -117,7 +126,18 @@ Bucket `contract-files` is private, 50MB cap, PDF mime-type enforced at the buck
 const path = `${contractId}/${Date.now()}-${crypto.randomUUID()}.pdf`;
 ```
 
-PDF preview uses `react-pdf` (pdfjs-dist) with worker loaded from `unpkg.com` matching the installed pdfjs version. Inline canvas rendering avoids Chrome's "Download PDFs" setting.
+**`registerUploadedFile` guards** ([app/(app)/contracts/[id]/actions.ts](app/(app)/contracts/[id]/actions.ts)) — required because the client picks the path:
+1. `storagePath` must start with `${contractId}/` (no cross-contract registration)
+2. The Storage object must actually exist (`supabase.storage.from(...).list(contractId, { search })`) — prevents registering a row pointing to nothing
+3. `fileSizeBytes` must be `> 0 && ≤ 50MB`
+
+**PDF preview goes through `/api/preview/[fileId]`, not direct `createSignedUrl`.** The client must NOT call `supabase.storage.createSignedUrl()` for previews — that issues a 5-minute public URL anyone with the link can curl, defeating the viewer-no-download rule. The proxy route ([app/api/preview/[fileId]/route.ts](app/api/preview/[fileId]/route.ts)):
+- **writer** (master/accounting) → 302 redirect to a server-issued signed URL (fast)
+- **viewer** → streams the bytes inline with `Content-Disposition: inline` (URL is session-bound; can't be shared)
+
+`FilePreviewButton` takes `fileId` (NOT `storagePath`) and points `<Document file={...}>` at `/api/preview/${fileId}`. Worker still loads from `unpkg.com/pdfjs-dist@${pdfjs.version}` matching the installed pdfjs version.
+
+**`FilePreviewButton` is lazy-loaded** via `next/dynamic({ ssr: false })` from `row-preview.tsx` and `supplement-card.tsx` because `react-pdf` + worker is ~500KB. Do not switch back to static import — it bloats the list/detail page bundle even for users who never click preview.
 
 ### Region map (대시보드)
 
@@ -167,22 +187,46 @@ The seed file reflects the patched codes. If you re-run mapshaper on raw kostat 
 - All visible labels use the maps in `lib/utils.ts` (`STATUS_LABEL`, `PARTY_LABEL`, `TYPE_LABEL`, `ROLE_LABEL`, etc.) — keep these in sync with the DB ENUMs. Badge color classes follow the same `_BADGE` pattern.
 - Reusable success popup: `app/components/success-modal.tsx`. Use this for write-action completion (signed-in users want explicit acknowledgement before navigating away).
 - Reusable LG selector: `app/components/lg-combobox.tsx` ([LgCombobox](app/components/lg-combobox.tsx)). Search-as-you-type with keyboard nav + match highlighting; the new contract form pairs it with the legacy cascading sido/sigungu dropdowns so users can use whichever they prefer (both bind to the same `lg_id` state).
+- **Reusable Modal**: `app/components/modal.tsx` — base modal with Escape close, `role="dialog"` + `aria-modal`, backdrop click, configurable `maxWidth` (`sm|md|lg|xl|2xl`), optional `title` (renders header bar with × button). Do not hand-roll `<div className="fixed inset-0 z-50 bg-...">` modals — every existing one was migrated.
+- **Reusable Badges**: `app/components/badges.tsx` exports `<StatusBadge status>`, `<TypeBadge ctype isSupplement?>`, `<PartyBadge party>` with `size?: 'sm'|'md'`. Used in contracts table, expiring page, search results, detail page, supplement cards. Do not duplicate the `inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${STATUS_BADGE[s]}` pattern — sizes drift.
 - **Brand**: orange-500 is the primary action color (login button, "등록" button, auto-renewal badge). Logo is `public/logo-whistle.png` (휘슬 CI from 010car.kr) — shown in the `(app)` header and on `/login`, `/signup`, `/pending`.
 - **Manage supplements from main's detail page.** When a main contract's detail page renders, it fetches its supplements + each supplement's latest file and shows them in a "부속 계약 (N)" section via `SupplementCard` ([app/(app)/contracts/[id]/supplement-card.tsx](app/(app)/contracts/[id]/supplement-card.tsx)) — each card has its own client-side PDF upload (Storage upload + `registerUploadedFile` against the supplement's contract id). This avoids forcing users to navigate to each supplement's detail page just to attach a file. Each supplement still has its own detail page reachable via the "상세 →" link in the card.
 - **Contract list groups supplements under main.** `ContractsTable` ([app/(app)/contracts/contracts-table.tsx](app/(app)/contracts/contracts-table.tsx)) is a client component that detects supplements (via `master_contract_id`) and hides them by default behind a `+` toggle on each main row, with a "전부 펼치기/접기" header. Active only when sorting by `lg_name`; other sorts render flat. The server page does data fetching/sorting; the client component owns expand state.
+- **Cascade/stale warnings on main edit & terminate.** The detail page computes `aliveSupplementCount` (status≠terminated) and passes it to both `ContractActions` and `EditMetaButton`. `TerminateModal` shows a red cascade warning + requires an explicit "동의" checkbox when terminating a main with live supplements (trigger `trg_cascade_terminate` will auto-terminate them). `EditMetaModal` shows an amber "부속에 자동 반영되지 않습니다" warning when a main's date/auto-renewal fields are edited while live supplements exist (no cascade for updates — see invariant #11).
+- **Filter labels are derived from `STATUS_LABEL` / `TYPE_LABEL` / `PARTY_LABEL`** maps, not hardcoded — `Object.entries(LABEL_MAP)` in [contracts/page.tsx](app/(app)/contracts/page.tsx). Hardcoding (e.g. filter chip "모노플랫폼" vs detail badge "모노플랫폼 직접") creates two names for the same value that drift over time.
+- **Tables wrap with `overflow-x-auto` + `min-w-[N]`** (not `overflow-hidden`) — the contracts/expiring/activity/users tables otherwise clip columns on mobile.
 
 ### LG contact info & dashboard search
 
 - **Per-LG contact** (4 columns on `local_governments`: `contact_department`, `contact_name`, `contact_phone`, `contact_email`) is shared across all of an LG's contracts (main + supplements). Edited via `updateLGContact` action ([app/(app)/contracts/[id]/actions.ts](app/(app)/contracts/[id]/actions.ts)) and rendered as `LGContactCard` on the contract detail page. Activity log: `event_type='contract_update'`, `target_type='local_government'`.
-- **Dashboard search** (`searchAll` server action, [app/(app)/dashboard/actions.ts](app/(app)/dashboard/actions.ts)) does ILIKE across: `contracts.memo` / `termination_reason`, `local_governments.full_name` + 4 contact columns, `contract_files.original_filename`. Returns contract hits with a `matches: SearchMatch[]` array so the UI can chip-tag which field matched. Min 2 chars; 100 hit cap. Available to all authenticated roles (RLS still constrains visibility).
+- **Dashboard search** (`searchAll` server action, [app/(app)/dashboard/actions.ts](app/(app)/dashboard/actions.ts)) does ILIKE across: `contracts.memo` / `termination_reason`, `local_governments.full_name` + 4 contact columns, `contract_files.original_filename`. Returns contract hits with a `matches: SearchMatch[]` array so the UI can chip-tag which field matched. Min 2 chars; 100 char cap; 100 hit cap. Available to all authenticated roles (RLS still constrains visibility).
+- **Search query implementation: per-column `.ilike()` chains via `Promise.all`, NOT PostgREST `.or()` string template.** The `.or('memo.ilike.<pat>,full_name.ilike.<pat>,...')` style is forbidden — it interpolates raw user input into a comma/dot-delimited filter DSL, so a needle containing `,`, `(`, `.` etc. lets an authenticated user inject additional filter clauses (and `\` isn't the default LIKE ESCAPE either). The current implementation runs one `.ilike()` per column in parallel and unions the row IDs. GIN trigram indexes (`pg_trgm`) exist on every searched text column — keep them in sync if you add a column.
 
 ### Cron / batch endpoints
 
-`app/api/cron/terminate-expired/route.ts` is the only scheduled endpoint. It requires `CRON_SECRET` and uses `SUPABASE_SERVICE_ROLE_KEY` to act as the first available master user. `vercel.json` has the schedule (daily KST 01:00). The underlying RPC `terminate_expired_contracts` uses `contract_effective_expiry()`, so auto-renewing contracts are correctly skipped (their effective expiry always rolls into the future) until `auto_renewal_end_date` is reached.
+`app/api/cron/terminate-expired/route.ts` is the only scheduled endpoint. It requires `CRON_SECRET` via `Authorization: Bearer <secret>` **header only** (or `x-cron-secret`) — the URL `?secret=` fallback was removed because Vercel access logs / referrer / browser history leak querystrings. Vercel Cron supports header-based auth natively. The route exports `runtime = 'nodejs'` and `maxDuration = 60`.
+
+Uses `SUPABASE_SERVICE_ROLE_KEY` to act as the first available master user. `vercel.json` has the schedule (daily KST 01:00). The underlying RPC `terminate_expired_contracts` uses `contract_effective_expiry()`, so auto-renewing contracts are correctly skipped (their effective expiry always rolls into the future) until `auto_renewal_end_date` is reached.
+
+### Large file export (ZIP)
+
+`app/api/export/contracts.zip/route.ts` builds an N-file PDF archive. Pattern:
+- `export const runtime = 'nodejs'; export const maxDuration = 300;`
+- `MAX_FILES_PER_ZIP = 500` — slice and note truncation in the `_manifest.txt`
+- **Input is lazy**: each `zip.file(path, asyncPromise)` where the promise resolves to a single PDF Buffer — JSZip pulls them one at a time as the output stream is consumed
+- **Output is streamed**: `zip.generateNodeStream({ streamFiles: true, compression: 'DEFLATE', compressionOptions: { level: 1 } })` wrapped in a manual `new ReadableStream({ start(controller) { ... } })` because `Readable.toWeb()` doesn't accept JSZip's `NodeJS.ReadableStream` interface return type. Compression level 1 because PDFs are already compressed.
+
+Do not switch back to `zip.generateAsync({ type: 'arraybuffer' })` — it buffers the entire archive in lambda memory and OOMs on real-world data (50MB/file × 30 files > 1024MB Vercel limit).
 
 ### Expiring contracts page
 
 `/expiring` (and the dashboard summary) use **30/60/90일** buckets — not the legacy 7/30/60. `get_kpi_summary` returns `expiring_30d / expiring_60d / expiring_90d`. D-day color thresholds: ≤30 red, ≤60 amber, else slate.
+
+The dashboard "만료 임박" table filters `master_contract_id IS NULL` (mains only) — matching `get_region_stats` semantics. The `/expiring` page shows both mains and supplements with `·메인/·부속` badges, and each bucket card displays a "메인 X · 부속 Y" split underneath the count.
+
+### next.config
+
+`/geo/*` (TopoJSON assets) get `Cache-Control: public, max-age=86400, immutable` via `next.config.ts` `headers()`. Next.js defaults to `max-age=0, must-revalidate` for `public/` files, which would force re-validation of the ~870KB `korea-admin.topo.json` on every dashboard nav. When the topojson content changes, rename the file (include a content hash) so the immutable cache busts.
 
 ## Local conventions
 

@@ -2,16 +2,11 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import {
-  STATUS_BADGE,
-  STATUS_LABEL,
-  PARTY_LABEL,
-  PARTY_BADGE,
-  TYPE_LABEL,
-  TYPE_BADGE,
   daysUntil,
   effectiveExpiry,
   fmtDate,
 } from '@/lib/utils';
+import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +92,8 @@ export default async function ExpiringPage({
           const items = enriched.filter(
             (c) => (c.days ?? -1) >= min && (c.days ?? 0) <= max,
           );
+          const mains = items.filter((c) => !c.master_contract_id).length;
+          const supps = items.length - mains;
           const toneCard = {
             red: 'border-l-red-500',
             amber: 'border-l-amber-500',
@@ -111,13 +108,16 @@ export default async function ExpiringPage({
               <p className="text-2xl font-bold text-slate-900 tabular-nums">
                 {items.length}
               </p>
+              <p className="text-[11px] text-slate-500 tabular-nums mt-0.5">
+                메인 {mains} · 부속 {supps}
+              </p>
             </div>
           );
         })}
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="text-xs text-slate-500 bg-slate-50">
               <th className="text-left px-4 py-2 font-medium">지자체</th>
@@ -132,7 +132,7 @@ export default async function ExpiringPage({
             {enriched.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-4 py-10 text-center text-slate-400">
-                  해당 구간에 만료 임박 계약이 없습니다.
+                  {error ? '데이터를 불러올 수 없습니다.' : '해당 구간에 만료 임박 계약이 없습니다.'}
                 </td>
               </tr>
             )}
@@ -147,21 +147,13 @@ export default async function ExpiringPage({
                   </Link>
                 </td>
                 <td className="px-4 py-2">
-                  <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[c.contract_type]}`}>
-                    {TYPE_LABEL[c.contract_type]}{c.master_contract_id ? '·부속' : '·메인'}
-                  </span>
+                  <TypeBadge ctype={c.contract_type} isSupplement={!!c.master_contract_id} />
                 </td>
                 <td className="px-4 py-2">
-                  <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[c.contracting_party]}`}>
-                    {PARTY_LABEL[c.contracting_party]}
-                  </span>
+                  <PartyBadge party={c.contracting_party} />
                 </td>
                 <td className="px-4 py-2">
-                  <span
-                    className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${STATUS_BADGE[c.status]}`}
-                  >
-                    {STATUS_LABEL[c.status]}
-                  </span>
+                  <StatusBadge status={c.status} />
                 </td>
                 <td className="px-4 py-2 tabular-nums">{fmtDate(c.expiry)}</td>
                 <td

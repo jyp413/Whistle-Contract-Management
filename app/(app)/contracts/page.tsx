@@ -3,7 +3,13 @@ import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import ZipMenu from './zip-menu';
 import ContractsTable, { type SortKey } from './contracts-table';
-import { canWrite, effectiveExpiry } from '@/lib/utils';
+import {
+  canWrite,
+  effectiveExpiry,
+  STATUS_LABEL,
+  TYPE_LABEL,
+  PARTY_LABEL,
+} from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
 
 export const dynamic = 'force-dynamic';
@@ -12,26 +18,29 @@ type Status = Database['public']['Enums']['contract_status'];
 type Party = Database['public']['Enums']['contracting_party'];
 type Ctype = Database['public']['Enums']['contract_type'];
 
+// 필터 라벨은 STATUS_LABEL/TYPE_LABEL/PARTY_LABEL 에서 도출 — 디테일 뱃지와 1:1 매칭 유지
 const STATUS_FILTERS: { key: Status | 'all'; label: string }[] = [
   { key: 'all', label: '전체' },
-  { key: 'in_progress', label: '체결중' },
-  { key: 'completed', label: '계약완료' },
-  { key: 'updating', label: '갱신중' },
-  { key: 'terminated', label: '종료' },
+  ...(Object.entries(STATUS_LABEL) as [Status, string][]).map(([key, label]) => ({
+    key,
+    label,
+  })),
 ];
 
 const TYPE_FILTERS: { key: Ctype | 'all'; label: string }[] = [
   { key: 'all', label: '전체 유형' },
-  { key: 'parking_enforcement', label: '주차단속(메인)' },
-  { key: 'personal_info_outsourcing', label: '개인정보' },
-  { key: 'mou', label: 'MOU' },
-  { key: 'other', label: '기타' },
+  ...(Object.entries(TYPE_LABEL) as [Ctype, string][]).map(([key, label]) => ({
+    key,
+    label: key === 'parking_enforcement' ? `${label} (메인)` : label,
+  })),
 ];
 
 const PARTY_FILTERS: { key: Party | 'all'; label: string }[] = [
   { key: 'all', label: '전체 주체' },
-  { key: 'monoplatform', label: '모노플랫폼' },
-  { key: 'imcity', label: '아이엠시티' },
+  ...(Object.entries(PARTY_LABEL) as [Party, string][]).map(([key, label]) => ({
+    key,
+    label,
+  })),
 ];
 
 const SORT_KEYS: ReadonlyArray<SortKey> = [
@@ -143,18 +152,18 @@ export default async function ContractsListPage({
   const contractIds = filtered.map((c) => c.id);
   const fileMap: Record<
     string,
-    { storage_path: string; original_filename: string }
+    { id: string; original_filename: string }
   > = {};
   if (contractIds.length > 0) {
     const { data: files } = await supabase
       .from('contract_files')
-      .select('contract_id, storage_path, original_filename')
+      .select('contract_id, id, original_filename')
       .in('contract_id', contractIds)
       .eq('is_latest', true)
       .is('deleted_at', null);
     for (const f of files ?? []) {
       fileMap[f.contract_id] = {
-        storage_path: f.storage_path,
+        id: f.id,
         original_filename: f.original_filename,
       };
     }

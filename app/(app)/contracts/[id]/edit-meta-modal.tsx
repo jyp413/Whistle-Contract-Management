@@ -6,6 +6,7 @@ import { updateContractMeta } from './actions';
 import { listMasterContractsForLG } from '../new/actions';
 import { PARTY_LABEL, TYPE_LABEL, STATUS_LABEL } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
+import Modal from '@/app/components/modal';
 
 type Party = Database['public']['Enums']['contracting_party'];
 type Ctype = Database['public']['Enums']['contract_type'];
@@ -21,6 +22,7 @@ export default function EditMetaModal({
   open,
   onClose,
   contract,
+  supplementCount = 0,
 }: {
   open: boolean;
   onClose: () => void;
@@ -40,6 +42,8 @@ export default function EditMetaModal({
     auto_renewal_period_months: number | null;
     auto_renewal_end_date: string | null;
   };
+  /** 메인 계약일 때 살아있는 부속 건수. 일자 수정 시 stale 경고. */
+  supplementCount?: number;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -66,6 +70,20 @@ export default function EditMetaModal({
   const isSupplement = contractType !== 'parking_enforcement';
   const expiryIsPast = !!expiryDate && expiryDate < today;
   const expiryPastBlocking = expiryIsPast && !autoRenewal;
+  const isMain = !contract.master_contract_id;
+  // 메인의 일자/자동연장 필드가 바뀌었는지 — 부속 stale 경고 트리거
+  const dateChanged =
+    (signedDate || null) !== contract.signed_date ||
+    (effectiveDate || null) !== contract.effective_date ||
+    (expiryDate || null) !== contract.expiry_date ||
+    (extendedExpiry || null) !== contract.extended_expiry_date ||
+    autoRenewal !== contract.auto_renewal ||
+    (autoRenewal ? parseInt(autoRenewalMonths, 10) || null : null) !==
+      contract.auto_renewal_period_months ||
+    (autoRenewal ? autoRenewalEndDate || null : null) !==
+      contract.auto_renewal_end_date;
+  const showStaleSupplementWarning =
+    isMain && supplementCount > 0 && dateChanged;
 
   useEffect(() => {
     if (!open || !isSupplement) {
@@ -94,6 +112,11 @@ export default function EditMetaModal({
     }
     if (expiryPastBlocking && !extendedExpiry) {
       setError('만료일이 지났습니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.');
+      return;
+    }
+    // 서버 가드와 동일: 연장 후 만료일은 기존 만료일 이후여야 함
+    if (extendedExpiry && expiryDate && extendedExpiry <= expiryDate) {
+      setError('연장 후 만료일은 기존 만료일 이후여야 합니다.');
       return;
     }
     const periodMonths = autoRenewal ? parseInt(autoRenewalMonths, 10) : null;
@@ -131,13 +154,8 @@ export default function EditMetaModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900">계약 정보 수정</h2>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-900 text-xl leading-none" aria-label="닫기">×</button>
-        </div>
-        <form onSubmit={submit} className="p-5 space-y-4">
+    <Modal title="계약 정보 수정" onClose={onClose} maxWidth="2xl">
+      <form onSubmit={submit} className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-700 mb-1">계약 주체 *</label>
@@ -256,6 +274,13 @@ export default function EditMetaModal({
             />
           </div>
 
+          {showStaleSupplementWarning && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              ⚠ 이 메인 계약에는 부속 {supplementCount}건이 있습니다. 일자/자동연장 변경은
+              <b>부속에 자동 반영되지 않습니다</b> — 필요 시 각 부속 상세에서 별도로 수정하세요.
+            </p>
+          )}
+
           {error && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1">{error}</p>
           )}
@@ -266,9 +291,8 @@ export default function EditMetaModal({
               {pending ? '저장 중…' : '저장'}
             </button>
           </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </Modal>
   );
 }
 

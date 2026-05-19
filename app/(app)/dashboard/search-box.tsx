@@ -3,15 +3,8 @@
 import Link from 'next/link';
 import { useState, useTransition } from 'react';
 import { searchAll, type SearchHit, type SearchMatch } from './actions';
-import {
-  STATUS_LABEL,
-  STATUS_BADGE,
-  TYPE_LABEL,
-  TYPE_BADGE,
-  PARTY_LABEL,
-  PARTY_BADGE,
-  fmtDate,
-} from '@/lib/utils';
+import { fmtDate } from '@/lib/utils';
+import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 import type { Database } from '@/lib/types/database';
 
 type Status = Database['public']['Enums']['contract_status'];
@@ -102,15 +95,9 @@ export default function SearchBox() {
                   >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-slate-900">{h.lg_name}</span>
-                      <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[h.contract_type as Ctype]}`}>
-                        {TYPE_LABEL[h.contract_type as Ctype]}{h.is_main ? '·메인' : '·부속'}
-                      </span>
-                      <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[h.contracting_party as Party]}`}>
-                        {PARTY_LABEL[h.contracting_party as Party]}
-                      </span>
-                      <span className={`inline-flex text-[11px] px-2 py-0.5 rounded ring-1 ring-inset ${STATUS_BADGE[h.status as Status]}`}>
-                        {STATUS_LABEL[h.status as Status]}
-                      </span>
+                      <TypeBadge ctype={h.contract_type as Ctype} isSupplement={!h.is_main} />
+                      <PartyBadge party={h.contracting_party as Party} />
+                      <StatusBadge status={h.status as Status} />
                     </div>
                     <div className="flex items-center gap-2 mt-1 flex-wrap">
                       {h.matches.map((m) => (

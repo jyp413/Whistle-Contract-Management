@@ -134,8 +134,8 @@ export async function createContractAction(input: unknown): Promise<
     return { error: error?.message ?? '등록 실패' };
   }
 
-  // 상태 이력 + 활동 로그 기록 (best-effort)
-  await supabase.from('contract_status_history').insert({
+  // 상태 이력 + 활동 로그 기록 (insert 에러 발생 시 server console 로깅)
+  const { error: histErr } = await supabase.from('contract_status_history').insert({
     contract_id: data.id,
     from_status: null,
     to_status: 'in_progress',
@@ -143,18 +143,20 @@ export async function createContractAction(input: unknown): Promise<
     trigger_event: 'contract_create',
     changed_by: me.id,
   });
+  if (histErr) console.error('[createContractAction] status_history insert failed:', histErr);
 
   if (v.extended_expiry_date && v.expiry_date) {
-    await supabase.from('contract_extensions').insert({
+    const { error: extErr } = await supabase.from('contract_extensions').insert({
       contract_id: data.id,
       previous_expiry_date: v.expiry_date,
       new_expiry_date: v.extended_expiry_date,
       reason: '초기 등록 시 입력된 연장 정보',
       extended_by: me.id,
     });
+    if (extErr) console.error('[createContractAction] contract_extensions insert failed:', extErr);
   }
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'contract_create',
     target_type: 'contract',
@@ -174,6 +176,7 @@ export async function createContractAction(input: unknown): Promise<
       auto_renewal_end_date: v.auto_renewal ? v.auto_renewal_end_date : null,
     },
   });
+  if (logErr) console.error('[createContractAction] activity_logs insert failed:', logErr);
 
   return { id: data.id };
 }
@@ -432,7 +435,7 @@ async function recordCreateSideEffects(
   contractId: string,
   payload: Record<string, unknown>,
 ) {
-  await supabase.from('contract_status_history').insert({
+  const { error: histErr } = await supabase.from('contract_status_history').insert({
     contract_id: contractId,
     from_status: null,
     to_status: 'in_progress',
@@ -440,20 +443,25 @@ async function recordCreateSideEffects(
     trigger_event: 'contract_create',
     changed_by: userId,
   });
+  if (histErr) console.error('[batch] status_history insert failed:', contractId, histErr);
+
   if (payload.extended_expiry_date && payload.expiry_date) {
-    await supabase.from('contract_extensions').insert({
+    const { error: extErr } = await supabase.from('contract_extensions').insert({
       contract_id: contractId,
       previous_expiry_date: payload.expiry_date as string,
       new_expiry_date: payload.extended_expiry_date as string,
       reason: '초기 등록 시 입력된 연장 정보',
       extended_by: userId,
     });
+    if (extErr) console.error('[batch] contract_extensions insert failed:', contractId, extErr);
   }
-  await supabase.from('activity_logs').insert({
+
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: userId,
     event_type: 'contract_create',
     target_type: 'contract',
     target_id: contractId,
     after_value: { ...payload, status: 'in_progress' },
   });
+  if (logErr) console.error('[batch] activity_logs insert failed:', contractId, logErr);
 }

@@ -4,19 +4,16 @@ import { useEffect, useRef, useState } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
-import { createClient } from '@/lib/supabase/client';
 
 // Worker는 pdfjs-dist 와 동일 버전 사용. CDN 으로 lazy 로드.
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-const SIGNED_URL_TTL_SECONDS = 60 * 5; // 5분
-
 export default function FilePreviewButton({
-  storagePath,
+  fileId,
   filename,
   canDownload,
 }: {
-  storagePath: string;
+  fileId: string;
   filename: string;
   canDownload: boolean;
 }) {
@@ -68,19 +65,12 @@ export default function FilePreviewButton({
     setNumPages(null);
     setPdfError(null);
 
-    if (url) return; // 이미 발급됨
+    if (url) return; // 이미 설정됨
     setUrlLoading(true);
     setUrlError(null);
-    const supabase = createClient();
-    const { data, error } = await supabase.storage
-      .from('contract-files')
-      .createSignedUrl(storagePath, SIGNED_URL_TTL_SECONDS);
+    // 세션 바인딩 프록시 URL. writer 는 서버에서 302 redirect, viewer 는 inline 스트리밍.
+    setUrl(`/api/preview/${fileId}`);
     setUrlLoading(false);
-    if (error || !data) {
-      setUrlError(error?.message ?? 'URL 발급 실패');
-      return;
-    }
-    setUrl(data.signedUrl);
   }
 
   function close() {

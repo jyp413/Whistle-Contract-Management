@@ -115,8 +115,8 @@ export default async function ActivityPage({
         </p>
       )}
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="text-xs text-slate-500 bg-slate-50">
               <th className="text-left px-4 py-2 font-medium">발생일시</th>
@@ -130,7 +130,7 @@ export default async function ActivityPage({
             {(logs ?? []).length === 0 && (
               <tr>
                 <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                  활동 내역이 없습니다.
+                  {error ? '활동 내역을 불러올 수 없습니다.' : '활동 내역이 없습니다.'}
                 </td>
               </tr>
             )}

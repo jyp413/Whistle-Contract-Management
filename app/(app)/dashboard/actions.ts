@@ -27,34 +27,66 @@ export type SearchHit = {
 };
 
 const SEARCH_LIMIT = 100;
+const SEARCH_MAX_LEN = 100;
 
 export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncated: boolean }> {
   await requireUser();
   const needle = q.trim();
   if (!needle) return { hits: [], truncated: false };
   if (needle.length < 2) return { hits: [], truncated: false };
+  if (needle.length > SEARCH_MAX_LEN) return { hits: [], truncated: false };
 
   const supabase = await createClient();
-  const like = `%${needle.replace(/[%_]/g, (m) => `\\${m}`)}%`;
+  // LIKE 메타문자만 이스케이프. PostgREST .or() 문자열 템플릿 회피를 위해 컬럼별 .ilike() 체인을
+  // Promise.all 로 병렬 실행한다 (CSV 구분자 ',' '(' ')' '.' 등이 needle 에 들어가도 안전).
+  const like = `%${needle.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
 
   // 1) contracts: memo / termination_reason
   // 2) local_governments: full_name / contact_*  → contract ids via local_government_id
   // 3) contract_files: original_filename → contract_id
 
-  const [c1, lgs, fs] = await Promise.all([
+  const [cMemo, cTerm, lgName, lgDept, lgPerson, lgPhone, lgEmail, fs] = await Promise.all([
     supabase
       .from('contracts')
-      .select('id, memo, termination_reason')
+      .select('id, memo')
       .is('deleted_at', null)
-      .or(`memo.ilike.${like},termination_reason.ilike.${like}`)
+      .ilike('memo', like)
+      .limit(SEARCH_LIMIT),
+    supabase
+      .from('contracts')
+      .select('id, termination_reason')
+      .is('deleted_at', null)
+      .ilike('termination_reason', like)
       .limit(SEARCH_LIMIT),
     supabase
       .from('local_governments')
-      .select('id, full_name, contact_department, contact_name, contact_phone, contact_email')
+      .select('id, full_name')
       .is('deleted_at', null)
-      .or(
-        `full_name.ilike.${like},contact_department.ilike.${like},contact_name.ilike.${like},contact_phone.ilike.${like},contact_email.ilike.${like}`,
-      )
+      .ilike('full_name', like)
+      .limit(SEARCH_LIMIT),
+    supabase
+      .from('local_governments')
+      .select('id, contact_department')
+      .is('deleted_at', null)
+      .ilike('contact_department', like)
+      .limit(SEARCH_LIMIT),
+    supabase
+      .from('local_governments')
+      .select('id, contact_name')
+      .is('deleted_at', null)
+      .ilike('contact_name', like)
+      .limit(SEARCH_LIMIT),
+    supabase
+      .from('local_governments')
+      .select('id, contact_phone')
+      .is('deleted_at', null)
+      .ilike('contact_phone', like)
+      .limit(SEARCH_LIMIT),
+    supabase
+      .from('local_governments')
+      .select('id, contact_email')
+      .is('deleted_at', null)
+      .ilike('contact_email', like)
       .limit(SEARCH_LIMIT),
     supabase
       .from('contract_files')
@@ -75,31 +107,36 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
     s.add(m);
   }
 
-  for (const r of c1.data ?? []) {
-    if (r.memo && r.memo.toLowerCase().includes(needle.toLowerCase())) add(r.id, 'memo');
-    if (r.termination_reason && r.termination_reason.toLowerCase().includes(needle.toLowerCase())) add(r.id, 'termination_reason');
-  }
+  for (const r of cMemo.data ?? []) add(r.id, 'memo');
+  for (const r of cTerm.data ?? []) add(r.id, 'termination_reason');
 
-  // LG hits → 해당 LG의 모든 활성 계약 id 조회
-  const lgHits = lgs.data ?? [];
-  if (lgHits.length > 0) {
-    const lgIds = lgHits.map((l) => l.id);
+  // LG hits → 해당 LG의 모든 활성 계약 id 조회 (어느 컬럼에서 매치됐는지 라벨 매핑)
+  const lgMatches = new Map<string, Set<SearchMatch>>();
+  function addLg(lgId: string, m: SearchMatch) {
+    let s = lgMatches.get(lgId);
+    if (!s) {
+      s = new Set();
+      lgMatches.set(lgId, s);
+    }
+    s.add(m);
+  }
+  for (const r of lgName.data ?? []) addLg(r.id, 'lg_name');
+  for (const r of lgDept.data ?? []) addLg(r.id, 'contact_department');
+  for (const r of lgPerson.data ?? []) addLg(r.id, 'contact_name');
+  for (const r of lgPhone.data ?? []) addLg(r.id, 'contact_phone');
+  for (const r of lgEmail.data ?? []) addLg(r.id, 'contact_email');
+
+  if (lgMatches.size > 0) {
+    const lgIds = Array.from(lgMatches.keys());
     const { data: lgContracts } = await supabase
       .from('contracts')
       .select('id, local_government_id')
       .is('deleted_at', null)
       .in('local_government_id', lgIds);
-    const byLg = new Map<string, typeof lgHits[number]>();
-    for (const l of lgHits) byLg.set(l.id, l);
     for (const c of lgContracts ?? []) {
-      const lg = byLg.get(c.local_government_id);
-      if (!lg) continue;
-      const n = needle.toLowerCase();
-      if (lg.full_name?.toLowerCase().includes(n)) add(c.id, 'lg_name');
-      if (lg.contact_department?.toLowerCase().includes(n)) add(c.id, 'contact_department');
-      if (lg.contact_name?.toLowerCase().includes(n)) add(c.id, 'contact_name');
-      if (lg.contact_phone?.toLowerCase().includes(n)) add(c.id, 'contact_phone');
-      if (lg.contact_email?.toLowerCase().includes(n)) add(c.id, 'contact_email');
+      const labels = lgMatches.get(c.local_government_id);
+      if (!labels) continue;
+      for (const m of labels) add(c.id, m);
     }
   }
 

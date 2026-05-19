@@ -12,6 +12,7 @@ import {
 } from './actions';
 import type { Database } from '@/lib/types/database';
 import { STATUS_LABEL, fmtDate, fmtDateTime } from '@/lib/utils';
+import Modal from '@/app/components/modal';
 
 type Status = Database['public']['Enums']['contract_status'];
 
@@ -32,6 +33,7 @@ export default function ContractActions({
   history,
   userRole,
   parentContractId,
+  supplementCount = 0,
 }: {
   contractId: string;
   status: Status;
@@ -40,6 +42,8 @@ export default function ContractActions({
   history: HistoryItem[];
   userRole: 'master' | 'accounting' | 'viewer';
   parentContractId: string | null;
+  /** 메인 계약일 때 살아있는 부속 건수 — terminate cascade 경고용. */
+  supplementCount?: number;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState<
@@ -118,6 +122,7 @@ export default function ContractActions({
           contractId={contractId}
           version={version}
           status={status}
+          supplementCount={supplementCount}
           onClose={() => setOpen(null)}
           onSuccess={() => {
             setOpen(null);
@@ -231,31 +236,6 @@ function ActionBtn({
   );
 }
 
-function Modal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-lg shadow-xl w-full max-w-md p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h3 className="text-base font-bold text-slate-900 mb-3">{title}</h3>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function ExtendModal({
   contractId,
   version,
@@ -327,23 +307,31 @@ function TerminateModal({
   contractId,
   version,
   status,
+  supplementCount,
   onClose,
   onSuccess,
 }: {
   contractId: string;
   version: number;
   status: Status;
+  supplementCount: number;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState('');
+  const [cascadeAck, setCascadeAck] = useState(false);
+  const needsCascadeAck = supplementCount > 0;
 
   function submit() {
     setError(null);
     if (!reason.trim()) {
       setError('종료 사유는 필수입니다.');
+      return;
+    }
+    if (needsCascadeAck && !cascadeAck) {
+      setError('부속 계약 자동 종료에 동의해야 진행할 수 있습니다.');
       return;
     }
     start(async () => {
@@ -362,6 +350,26 @@ function TerminateModal({
       <p className="text-xs text-slate-600 mb-3">
         현재 상태 <b>{STATUS_LABEL[status]}</b> → <b>종료</b>로 변경합니다.
       </p>
+      {needsCascadeAck && (
+        <div className="mb-3 rounded border border-rose-300 bg-rose-50 p-3 space-y-2">
+          <p className="text-xs text-rose-800 font-medium">
+            ⚠ 이 메인 계약에는 살아있는 부속 {supplementCount}건이 있습니다.
+          </p>
+          <p className="text-xs text-rose-700 leading-relaxed">
+            메인 종료 시 부속 {supplementCount}건도 <b>「메인 계약 종료에 따른 자동 종료」</b> 사유로
+            함께 자동 종료됩니다. 되돌리려면 상태 보정이 필요합니다.
+          </p>
+          <label className="flex items-start gap-2 text-xs text-rose-900 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={cascadeAck}
+              onChange={(e) => setCascadeAck(e.target.checked)}
+              className="mt-0.5 rounded border-rose-400"
+            />
+            <span>위 부속 {supplementCount}건이 함께 자동 종료되는 것을 확인했습니다.</span>
+          </label>
+        </div>
+      )}
       <Field label="종료 사유 *">
         <textarea
           value={reason}
@@ -377,6 +385,7 @@ function TerminateModal({
         onSubmit={submit}
         label="종료 처리"
         tone="danger"
+        disabled={needsCascadeAck && !cascadeAck}
       />
     </Modal>
   );

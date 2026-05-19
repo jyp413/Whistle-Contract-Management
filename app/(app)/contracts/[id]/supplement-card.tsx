@@ -3,18 +3,31 @@
 import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { createClient } from '@/lib/supabase/client';
 import { confirmCompletion, registerUploadedFile } from './actions';
-import FilePreviewButton from './file-preview';
+
+const FilePreviewButton = dynamic(() => import('./file-preview'), {
+  ssr: false,
+  loading: () => (
+    <button
+      type="button"
+      disabled
+      className="text-xs font-medium px-2.5 py-1 border border-slate-200 bg-slate-50 text-slate-400 rounded"
+    >
+      미리보기
+    </button>
+  ),
+});
 import {
-  STATUS_LABEL,
-  STATUS_BADGE,
   TYPE_LABEL,
-  TYPE_BADGE,
   fmtDate,
   fmtDateTime,
+  effectiveExpiry,
 } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
+import Modal from '@/app/components/modal';
+import { StatusBadge, TypeBadge } from '@/app/components/badges';
 
 type Status = Database['public']['Enums']['contract_status'];
 type Ctype = Database['public']['Enums']['contract_type'];
@@ -29,6 +42,9 @@ export type SupplementInfo = {
   signed_date: string | null;
   expiry_date: string | null;
   extended_expiry_date: string | null;
+  auto_renewal: boolean | null;
+  auto_renewal_period_months: number | null;
+  auto_renewal_end_date: string | null;
   latest_file: {
     id: string;
     storage_path: string;
@@ -135,9 +151,7 @@ export default function SupplementCard({
     });
   }
 
-  const effectiveExpiryStr = fmtDate(
-    supplement.extended_expiry_date ?? supplement.expiry_date,
-  );
+  const effectiveExpiryStr = fmtDate(effectiveExpiry(supplement));
   const latest = supplement.latest_file;
 
   return (
@@ -145,16 +159,8 @@ export default function SupplementCard({
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span
-              className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[supplement.contract_type]}`}
-            >
-              {TYPE_LABEL[supplement.contract_type]}·부속
-            </span>
-            <span
-              className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${STATUS_BADGE[supplement.status]}`}
-            >
-              {STATUS_LABEL[supplement.status]}
-            </span>
+            <TypeBadge ctype={supplement.contract_type} isSupplement />
+            <StatusBadge status={supplement.status} />
           </div>
           <p className="text-xs text-slate-600 tabular-nums">
             체결 {fmtDate(supplement.signed_date)} · 실효 만료{' '}
@@ -181,7 +187,7 @@ export default function SupplementCard({
             </p>
           </div>
           <FilePreviewButton
-            storagePath={latest.storage_path}
+            fileId={latest.id}
             filename={latest.original_filename}
             canDownload={canUpload}
           />
@@ -254,48 +260,45 @@ export default function SupplementCard({
       )}
 
       {confirmOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
-          onClick={() => !completing && setConfirmOpen(false)}
+        <Modal
+          onClose={() => !completing && setConfirmOpen(false)}
+          maxWidth="sm"
+          closeOnBackdrop={!completing}
+          ariaLabel="부속 계약 상태 변경"
         >
-          <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-bold text-slate-900">
-              부속 계약 상태 변경
-            </h3>
-            <p className="text-sm text-slate-700 mt-2">
-              <b>{TYPE_LABEL[supplement.contract_type]} (부속)</b> 파일이
-              업로드되었습니다.
-              <br />
-              계약 상태를 <b>「계약완료」</b>로 변경하시겠습니까?
+          <h3 className="text-base font-bold text-slate-900">
+            부속 계약 상태 변경
+          </h3>
+          <p className="text-sm text-slate-700 mt-2">
+            <b>{TYPE_LABEL[supplement.contract_type]} (부속)</b> 파일이
+            업로드되었습니다.
+            <br />
+            계약 상태를 <b>「계약완료」</b>로 변경하시겠습니까?
+          </p>
+          {completeError && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
+              {completeError}
             </p>
-            {completeError && (
-              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
-                {completeError}
-              </p>
-            )}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmOpen(false)}
-                disabled={completing}
-                className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
-              >
-                나중에
-              </button>
-              <button
-                type="button"
-                onClick={doConfirmCompletion}
-                disabled={completing}
-                className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
-              >
-                {completing ? '처리 중…' : '확인 — 계약완료로 변경'}
-              </button>
-            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              disabled={completing}
+              className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+            >
+              나중에
+            </button>
+            <button
+              type="button"
+              onClick={doConfirmCompletion}
+              disabled={completing}
+              className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
+            >
+              {completing ? '처리 중…' : '확인 — 계약완료로 변경'}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

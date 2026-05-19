@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { confirmCompletion, registerUploadedFile } from './actions';
 import type { Database } from '@/lib/types/database';
+import Modal from '@/app/components/modal';
 
 type Status = Database['public']['Enums']['contract_status'];
 
@@ -27,7 +28,6 @@ export default function UploadCard({
   const [progress, setProgress] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [latestVersion, setLatestVersion] = useState(currentVersion);
   const [success, setSuccess] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -126,16 +126,17 @@ export default function UploadCard({
 
   function handleConfirm() {
     startTransition(async () => {
+      // prop `currentVersion` 을 그대로 사용 — router.refresh() 이후 부모 페이지가 새로운 version을
+      // prop으로 다시 내려주므로 로컬 state로 +1 누적하지 않는다. 충돌 시 서버가 409 반환.
       const result = await confirmCompletion({
         contractId,
-        expectedVersion: latestVersion,
+        expectedVersion: currentVersion,
       });
       if (result.error) {
         setError(result.error);
         return;
       }
       setConfirmOpen(false);
-      setLatestVersion((v) => v + 1);
       router.refresh();
     });
   }
@@ -214,47 +215,44 @@ export default function UploadCard({
       </aside>
 
       {confirmOpen && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
-          onClick={() => !pending && setConfirmOpen(false)}
+        <Modal
+          onClose={() => !pending && setConfirmOpen(false)}
+          maxWidth="sm"
+          closeOnBackdrop={!pending}
+          ariaLabel="상태 변경 확인"
         >
-          <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h3 className="text-base font-bold text-slate-900">
-              상태 변경 확인
-            </h3>
-            <p className="text-sm text-slate-700 mt-2">
-              계약 파일이 업로드되었습니다.
-              <br />
-              계약 상태를 <b>「계약완료」</b>로 변경하시겠습니까?
+          <h3 className="text-base font-bold text-slate-900">
+            상태 변경 확인
+          </h3>
+          <p className="text-sm text-slate-700 mt-2">
+            계약 파일이 업로드되었습니다.
+            <br />
+            계약 상태를 <b>「계약완료」</b>로 변경하시겠습니까?
+          </p>
+          {error && (
+            <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
+              {error}
             </p>
-            {error && (
-              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
-                {error}
-              </p>
-            )}
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setConfirmOpen(false)}
-                disabled={pending}
-                className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
-              >
-                나중에
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirm}
-                disabled={pending}
-                className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
-              >
-                {pending ? '처리 중…' : '확인 — 계약완료로 변경'}
-              </button>
-            </div>
+          )}
+          <div className="mt-5 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmOpen(false)}
+              disabled={pending}
+              className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+            >
+              나중에
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={pending}
+              className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
+            >
+              {pending ? '처리 중…' : '확인 — 계약완료로 변경'}
+            </button>
           </div>
-        </div>
+        </Modal>
       )}
     </>
   );

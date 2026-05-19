@@ -4,17 +4,13 @@ import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import {
   STATUS_LABEL,
-  STATUS_BADGE,
-  PARTY_LABEL,
-  PARTY_BADGE,
-  TYPE_LABEL,
-  TYPE_BADGE,
   fmtDate,
   fmtDateTime,
   canWrite,
   effectiveExpiry,
   formatAutoRenewalPeriod,
 } from '@/lib/utils';
+import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 import UploadCard from './upload-card';
 import ContractActions from './contract-actions';
 import FilePreviewButton from './file-preview';
@@ -93,7 +89,7 @@ export default async function ContractDetailPage({
       ? supabase
           .from('contracts')
           .select(
-            'id, status, version, contract_type, signed_date, expiry_date, extended_expiry_date',
+            'id, status, version, contract_type, signed_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
           )
           .eq('master_contract_id', id)
           .is('deleted_at', null)
@@ -133,6 +129,9 @@ export default async function ContractDetailPage({
         signed_date: s.signed_date,
         expiry_date: s.expiry_date,
         extended_expiry_date: s.extended_expiry_date,
+        auto_renewal: s.auto_renewal,
+        auto_renewal_period_months: s.auto_renewal_period_months,
+        auto_renewal_end_date: s.auto_renewal_end_date,
         latest_file: fileByContract.get(s.id) ?? null,
       });
     }
@@ -140,6 +139,10 @@ export default async function ContractDetailPage({
 
   const hasFiles = (files?.length ?? 0) > 0;
   const writer = canWrite(me.role);
+  // 살아있는 부속 (terminated 제외) — cascade/stale 경고용
+  const aliveSupplementCount = supplementInfos.filter(
+    (s) => s.status !== 'terminated',
+  ).length;
 
   return (
     <div className="space-y-5">
@@ -162,17 +165,9 @@ export default async function ContractDetailPage({
             <h1 className="text-xl font-bold text-slate-900">
               {contract.local_governments?.full_name}
             </h1>
-            <span
-              className={`inline-flex items-center text-sm font-medium px-3 py-1 rounded ring-1 ring-inset ${STATUS_BADGE[contract.status]}`}
-            >
-              {STATUS_LABEL[contract.status]}
-            </span>
-            <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[contract.contract_type]}`}>
-              {TYPE_LABEL[contract.contract_type]}{!contract.master_contract_id ? ' · 메인' : ' · 부속'}
-            </span>
-            <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[contract.contracting_party]}`}>
-              {PARTY_LABEL[contract.contracting_party]}
-            </span>
+            <StatusBadge status={contract.status} size="md" />
+            <TypeBadge ctype={contract.contract_type} isSupplement={!!contract.master_contract_id} />
+            <PartyBadge party={contract.contracting_party} />
           </div>
           {contract.master_contract_id && (
             <p className="text-xs text-slate-500 mt-1">
@@ -199,6 +194,7 @@ export default async function ContractDetailPage({
         <div className="flex items-start gap-2 flex-wrap">
           {writer && (
             <EditMetaButton
+              supplementCount={aliveSupplementCount}
               contract={{
                 id: contract.id,
                 version: contract.version,
@@ -232,6 +228,7 @@ export default async function ContractDetailPage({
             }))}
             userRole={me.role}
             parentContractId={contract.parent_contract_id}
+            supplementCount={aliveSupplementCount}
           />
         </div>
       </div>
@@ -387,7 +384,7 @@ export default async function ContractDetailPage({
                   <td className="px-5 py-2 text-right">
                     <div className="inline-flex items-center gap-2">
                       <FilePreviewButton
-                        storagePath={f.storage_path}
+                        fileId={f.id}
                         filename={f.original_filename}
                         canDownload={writer}
                       />

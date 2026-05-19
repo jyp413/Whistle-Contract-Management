@@ -42,6 +42,11 @@ yarn-error.log*
 # Vercel CLI workaround (Korean Windows hostname / Node 24 header validation)
 .vercel-shim.cjs
 
+# 일회성 지오 코드 비교 스크립트 (topojson ↔ DB)
+compare_codes.js
+db_codes.json
+topo_codes.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

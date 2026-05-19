@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { createClient } from '@/lib/supabase/server';
 import { requireMaster, requireWriter } from '@/lib/auth';
+import { effectiveExpiry } from '@/lib/utils';
 
 type Result<T = Record<string, never>> =
   | ({ error: string } & Partial<T>)
@@ -10,6 +11,8 @@ type Result<T = Record<string, never>> =
 
 /**
  * Storage 업로드 직후 호출. 다음 version_no, is_latest=TRUE 처리.
+ * - 클라이언트가 보낸 storagePath는 반드시 `${contractId}/` 로 시작해야 한다 (다른 계약 prefix 침입 방지).
+ * - 객체가 실제 존재하는지 Storage list 로 확인 (위변조 등록 방지).
  */
 export async function registerUploadedFile(input: {
   contractId: string;
@@ -19,7 +22,29 @@ export async function registerUploadedFile(input: {
   checksumSha256: string;
 }): Promise<Result<{ fileId: string; versionNo: number }>> {
   const me = await requireWriter();
+
+  const prefix = `${input.contractId}/`;
+  if (!input.storagePath.startsWith(prefix)) {
+    return { error: '파일 경로가 계약 ID와 일치하지 않습니다.' };
+  }
+  if (input.storagePath.includes('..') || input.storagePath.includes('//')) {
+    return { error: '잘못된 파일 경로입니다.' };
+  }
+  if (input.fileSizeBytes <= 0 || input.fileSizeBytes > 50 * 1024 * 1024) {
+    return { error: '파일 크기가 허용 범위를 벗어났습니다.' };
+  }
+
   const supabase = await createClient();
+
+  // Storage에 객체가 실제 존재하는지 검증
+  const objectName = input.storagePath.slice(prefix.length);
+  const { data: listed, error: listErr } = await supabase.storage
+    .from('contract-files')
+    .list(input.contractId, { search: objectName, limit: 1 });
+  if (listErr) return { error: `Storage 확인 실패: ${listErr.message}` };
+  if (!listed?.some((o) => o.name === objectName)) {
+    return { error: 'Storage 객체가 존재하지 않습니다. 업로드를 다시 시도하세요.' };
+  }
 
   const latestRes = await supabase
     .from('contract_files')
@@ -30,11 +55,14 @@ export async function registerUploadedFile(input: {
 
   const nextVersion = (latestRes.data?.[0]?.version_no ?? 0) + 1;
 
-  await supabase
+  const { error: demoteErr } = await supabase
     .from('contract_files')
     .update({ is_latest: false })
     .eq('contract_id', input.contractId)
     .eq('is_latest', true);
+  if (demoteErr) {
+    return { error: `이전 버전 해제 실패: ${demoteErr.message}` };
+  }
 
   const { data: inserted, error } = await supabase
     .from('contract_files')
@@ -54,7 +82,7 @@ export async function registerUploadedFile(input: {
 
   if (error || !inserted) return { error: error?.message ?? '파일 등록 실패' };
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'file_upload',
     target_type: 'file',
@@ -65,6 +93,7 @@ export async function registerUploadedFile(input: {
       version: nextVersion,
     },
   });
+  if (logErr) console.error('[registerUploadedFile] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   return { fileId: inserted.id, versionNo: nextVersion };
@@ -96,24 +125,26 @@ export async function confirmCompletion(input: {
   }
 
   const fromStatus = cur.status;
-  const { data: upd, error: e2 } = await supabase
+  const { error: e2, count } = await supabase
     .from('contracts')
-    .update({
-      status: 'completed',
-      version: cur.version + 1,
-      updated_by: me.id,
-    })
+    .update(
+      {
+        status: 'completed',
+        version: cur.version + 1,
+        updated_by: me.id,
+      },
+      { count: 'exact' },
+    )
     .eq('id', input.contractId)
     .eq('version', cur.version)
-    .is('deleted_at', null)
-    .select('id, version')
-    .maybeSingle();
+    .is('deleted_at', null);
 
-  if (e2 || !upd) {
+  if (e2) return { error: e2.message };
+  if (!count) {
     return { error: '동시 수정 충돌이 발생했습니다. 새로고침 후 다시 시도하세요.' };
   }
 
-  await supabase.from('contract_status_history').insert({
+  const { error: histErr } = await supabase.from('contract_status_history').insert({
     contract_id: input.contractId,
     from_status: fromStatus,
     to_status: 'completed',
@@ -121,8 +152,9 @@ export async function confirmCompletion(input: {
     trigger_event: '확인 팝업 승인',
     changed_by: me.id,
   });
+  if (histErr) console.error('[confirmCompletion] status_history insert failed:', histErr);
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'status_change',
     target_type: 'contract',
@@ -130,6 +162,7 @@ export async function confirmCompletion(input: {
     before_value: { status: fromStatus },
     after_value: { status: 'completed' },
   });
+  if (logErr) console.error('[confirmCompletion] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   return { ok: true };
@@ -153,7 +186,7 @@ export async function extendContract(input: {
   const { data: cur, error: e1 } = await supabase
     .from('contracts')
     .select(
-      'id, status, version, expiry_date, extended_expiry_date',
+      'id, status, version, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
     )
     .eq('id', input.contractId)
     .is('deleted_at', null)
@@ -167,7 +200,9 @@ export async function extendContract(input: {
     return { error: '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' };
   }
 
-  const previousEffective = cur.extended_expiry_date ?? cur.expiry_date;
+  // 자동연장 계약은 effectiveExpiry()가 expiry_date를 today 이후로 roll forward 하므로
+  // 베이스라인으로 raw expiry_date를 쓰면 사실상 단축되는 입력도 통과한다 — SSOT 함수 경유 필수.
+  const previousEffective = effectiveExpiry(cur);
   if (!previousEffective) {
     return { error: '기존 만료일이 설정되어 있지 않아 연장할 수 없습니다.' };
   }
@@ -176,28 +211,35 @@ export async function extendContract(input: {
   }
 
   // contracts.extended_expiry_date > expiry_date 제약 — 항상 만족 (newExpiryDate > previousEffective >= expiry_date)
-  const { error: e2 } = await supabase
+  const { error: e2, count } = await supabase
     .from('contracts')
-    .update({
-      extended_expiry_date: input.newExpiryDate,
-      version: cur.version + 1,
-      updated_by: me.id,
-    })
+    .update(
+      {
+        extended_expiry_date: input.newExpiryDate,
+        version: cur.version + 1,
+        updated_by: me.id,
+      },
+      { count: 'exact' },
+    )
     .eq('id', input.contractId)
     .eq('version', cur.version)
     .is('deleted_at', null);
 
-  if (e2) return { error: '동시 수정 충돌. 새로고침 후 다시 시도하세요.' };
+  if (e2) return { error: e2.message };
+  if (!count) {
+    return { error: '동시 수정 충돌. 새로고침 후 다시 시도하세요.' };
+  }
 
-  await supabase.from('contract_extensions').insert({
+  const { error: extErr } = await supabase.from('contract_extensions').insert({
     contract_id: input.contractId,
     previous_expiry_date: previousEffective,
     new_expiry_date: input.newExpiryDate,
     reason: input.reason || null,
     extended_by: me.id,
   });
+  if (extErr) console.error('[extendContract] contract_extensions insert failed:', extErr);
 
-  await supabase.from('contract_status_history').insert({
+  const { error: histErr } = await supabase.from('contract_status_history').insert({
     contract_id: input.contractId,
     from_status: 'completed',
     to_status: 'completed',
@@ -206,8 +248,9 @@ export async function extendContract(input: {
     trigger_event: 'extend_button',
     changed_by: me.id,
   });
+  if (histErr) console.error('[extendContract] status_history insert failed:', histErr);
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'extension',
     target_type: 'contract',
@@ -218,6 +261,7 @@ export async function extendContract(input: {
       reason: input.reason || null,
     },
   });
+  if (logErr) console.error('[extendContract] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   return { ok: true };
@@ -250,21 +294,27 @@ export async function terminateContract(input: {
   }
 
   const fromStatus = cur.status;
-  const { error: e2 } = await supabase
+  const { error: e2, count } = await supabase
     .from('contracts')
-    .update({
-      status: 'terminated',
-      termination_reason: reason,
-      version: cur.version + 1,
-      updated_by: me.id,
-    })
+    .update(
+      {
+        status: 'terminated',
+        termination_reason: reason,
+        version: cur.version + 1,
+        updated_by: me.id,
+      },
+      { count: 'exact' },
+    )
     .eq('id', input.contractId)
     .eq('version', cur.version)
     .is('deleted_at', null);
 
   if (e2) return { error: e2.message };
+  if (!count) {
+    return { error: '동시 수정 충돌이 발생했습니다. 새로고침 후 다시 시도하세요.' };
+  }
 
-  await supabase.from('contract_status_history').insert({
+  const { error: histErr } = await supabase.from('contract_status_history').insert({
     contract_id: input.contractId,
     from_status: fromStatus,
     to_status: 'terminated',
@@ -272,8 +322,9 @@ export async function terminateContract(input: {
     reason,
     changed_by: me.id,
   });
+  if (histErr) console.error('[terminateContract] status_history insert failed:', histErr);
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'status_change',
     target_type: 'contract',
@@ -281,6 +332,7 @@ export async function terminateContract(input: {
     before_value: { status: fromStatus },
     after_value: { status: 'terminated', reason },
   });
+  if (logErr) console.error('[terminateContract] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   return { ok: true };
@@ -302,7 +354,7 @@ export async function startRenewal(input: {
   const { data: parent, error: e1 } = await supabase
     .from('contracts')
     .select(
-      'id, status, version, local_government_id, expiry_date, extended_expiry_date',
+      'id, status, version, local_government_id, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
     )
     .eq('id', input.parentContractId)
     .is('deleted_at', null)
@@ -316,8 +368,8 @@ export async function startRenewal(input: {
     return { error: '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' };
   }
 
-  const parentExpiry =
-    parent.extended_expiry_date ?? parent.expiry_date ?? null;
+  // 자동연장 계약은 expiry_date가 옛 날짜일 수 있으므로 effectiveExpiry()로 실효 만료일을 구한다.
+  const parentExpiry = effectiveExpiry(parent);
   let nextStart: string | null = null;
   if (parentExpiry) {
     const d = new Date(parentExpiry);
@@ -340,7 +392,7 @@ export async function startRenewal(input: {
 
   if (e2 || !child) return { error: e2?.message ?? '갱신 계약 생성 실패' };
 
-  await supabase.from('contract_status_history').insert({
+  const { error: histErr } = await supabase.from('contract_status_history').insert({
     contract_id: child.id,
     from_status: null,
     to_status: 'updating',
@@ -348,8 +400,9 @@ export async function startRenewal(input: {
     trigger_event: `parent=${parent.id}`,
     changed_by: me.id,
   });
+  if (histErr) console.error('[startRenewal] status_history insert failed:', histErr);
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'status_change',
     target_type: 'contract',
@@ -360,6 +413,7 @@ export async function startRenewal(input: {
       parent_contract_id: parent.id,
     },
   });
+  if (logErr) console.error('[startRenewal] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${parent.id}`);
   revalidatePath('/contracts');
@@ -413,7 +467,7 @@ export async function deleteContract(input: {
     return { error: '동시 수정 충돌이 발생했습니다. 새로고침 후 다시 시도하세요.' };
   }
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'contract_delete',
     target_type: 'contract',
@@ -421,6 +475,7 @@ export async function deleteContract(input: {
     before_value: { status: cur.status, deleted_at: null },
     after_value: { deleted_at: deletedAt },
   });
+  if (logErr) console.error('[deleteContract] activity_logs insert failed:', logErr);
 
   revalidatePath('/contracts');
   revalidatePath('/dashboard');
@@ -590,7 +645,7 @@ export async function updateContractMeta(input: {
   if (e2) return { error: e2.message };
   if (!count) return { error: '동시 수정 충돌. 새로고침 후 다시 시도하세요.' };
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'meta_update',
     target_type: 'contract',
@@ -622,6 +677,7 @@ export async function updateContractMeta(input: {
       auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
     },
   });
+  if (logErr) console.error('[updateContractMeta] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   revalidatePath('/contracts');
@@ -633,7 +689,12 @@ export async function updateContractMeta(input: {
  * 같은 LG의 모든 계약이 동일 담당자를 공유.
  * 권한: writer+ (master / accounting).
  * activity_logs target_type='local_government', event_type='contract_update' (재사용).
+ *
+ * IDOR 방지: 클라이언트가 보낸 localGovernmentId가 contract.local_government_id와
+ * 일치하는지 서버에서 검증한 뒤에만 update 수행.
  */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export async function updateLGContact(input: {
   contractId: string;
   localGovernmentId: string;
@@ -645,9 +706,23 @@ export async function updateLGContact(input: {
   const me = await requireWriter();
   const supabase = await createClient();
 
-  // 이메일 가벼운 형식 검증
-  if (input.contact_email && !input.contact_email.includes('@')) {
+  if (input.contact_email && !EMAIL_RE.test(input.contact_email)) {
     return { error: '이메일 형식이 올바르지 않습니다.' };
+  }
+  if (input.contact_phone && input.contact_phone.length > 50) {
+    return { error: '전화번호가 너무 깁니다.' };
+  }
+
+  // contract 로드 후 LG 소유 검증 (IDOR 방지)
+  const { data: contract, error: cErr } = await supabase
+    .from('contracts')
+    .select('id, local_government_id')
+    .eq('id', input.contractId)
+    .is('deleted_at', null)
+    .single();
+  if (cErr || !contract) return { error: '계약을 찾을 수 없습니다.' };
+  if (contract.local_government_id !== input.localGovernmentId) {
+    return { error: '계약과 지자체 정보가 일치하지 않습니다.' };
   }
 
   const { data: before } = await supabase
@@ -670,7 +745,7 @@ export async function updateLGContact(input: {
 
   if (error) return { error: error.message };
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'contract_update',
     target_type: 'local_government',
@@ -683,6 +758,7 @@ export async function updateLGContact(input: {
       contact_email: input.contact_email,
     },
   });
+  if (logErr) console.error('[updateLGContact] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   return { ok: true };

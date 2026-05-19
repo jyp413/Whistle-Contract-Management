@@ -58,6 +58,18 @@ export async function setUserActive(input: {
   }
 
   const supabase = await createClient();
+
+  // 현재 상태 조회 — soft-delete 된 사용자는 재활성화 거부 + before_value 로그 완비
+  const { data: target } = await supabase
+    .from('users')
+    .select('is_active, deleted_at, email')
+    .eq('id', input.userId)
+    .single();
+  if (!target) return { error: '사용자를 찾을 수 없습니다.' };
+  if (target.deleted_at && input.isActive) {
+    return { error: '탈퇴 처리된 사용자는 재활성화할 수 없습니다.' };
+  }
+
   const { error } = await supabase
     .from('users')
     .update({ is_active: input.isActive })
@@ -65,13 +77,15 @@ export async function setUserActive(input: {
 
   if (error) return { error: error.message };
 
-  await supabase.from('activity_logs').insert({
+  const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'permission_change',
     target_type: 'user',
     target_id: input.userId,
-    after_value: { is_active: input.isActive },
+    before_value: { is_active: target.is_active, email: target.email },
+    after_value: { is_active: input.isActive, email: target.email },
   });
+  if (logErr) console.error('[setUserActive] activity_logs insert failed:', logErr);
 
   revalidatePath('/users');
   return { ok: true };

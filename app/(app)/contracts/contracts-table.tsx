@@ -5,17 +5,12 @@ import Link from 'next/link';
 import RowPreview from './row-preview';
 import EditMetaButton from './[id]/edit-meta-button';
 import {
-  STATUS_LABEL,
-  STATUS_BADGE,
-  PARTY_LABEL,
-  PARTY_BADGE,
-  TYPE_LABEL,
-  TYPE_BADGE,
   fmtDate,
   fmtDateTime,
   effectiveExpiry,
   formatAutoRenewalPeriod,
 } from '@/lib/utils';
+import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 import type { Database } from '@/lib/types/database';
 
 type Status = Database['public']['Enums']['contract_status'];
@@ -43,7 +38,7 @@ export type ContractRow = {
 };
 
 export type ContractFile = {
-  storage_path: string;
+  id: string;
   original_filename: string;
 };
 
@@ -131,7 +126,7 @@ export default function ContractsTable({
   }
 
   return (
-    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+    <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
       {groupByLg && hasAnySupplements && (
         <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2 text-xs text-slate-600">
           <span>부속 계약 표시:</span>
@@ -151,7 +146,7 @@ export default function ContractsTable({
           </button>
         </div>
       )}
-      <table className="w-full text-sm">
+      <table className="w-full text-sm min-w-[900px]">
         <thead>
           <tr className="text-xs text-slate-500 bg-slate-50">
             <th className="text-left px-4 py-2 font-medium w-12">No</th>
@@ -250,26 +245,13 @@ export default function ContractsTable({
                   </div>
                 </td>
                 <td className="px-4 py-2">
-                  <span
-                    className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[c.contract_type]}`}
-                  >
-                    {TYPE_LABEL[c.contract_type]}
-                    {isSupplement ? '·부속' : '·메인'}
-                  </span>
+                  <TypeBadge ctype={c.contract_type} isSupplement={isSupplement} />
                 </td>
                 <td className="px-4 py-2">
-                  <span
-                    className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[c.contracting_party]}`}
-                  >
-                    {PARTY_LABEL[c.contracting_party]}
-                  </span>
+                  <PartyBadge party={c.contracting_party} />
                 </td>
                 <td className="px-4 py-2">
-                  <span
-                    className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${STATUS_BADGE[c.status]}`}
-                  >
-                    {STATUS_LABEL[c.status]}
-                  </span>
+                  <StatusBadge status={c.status} />
                 </td>
                 <td className="px-4 py-2 tabular-nums">{fmtDate(c.signed_date)}</td>
                 <td className="px-4 py-2 tabular-nums">

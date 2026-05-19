@@ -5,6 +5,7 @@ import {
   fmtDate,
   daysUntil,
   effectiveExpiry,
+  STATUS_LABEL,
 } from '@/lib/utils';
 import { RegionMapCard } from '@/components/map/region-map-card';
 import type { LgStat } from '@/lib/map/types';
@@ -33,6 +34,7 @@ export default async function DashboardPage({
         'id, status, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, local_governments(full_name, sigungu)',
       )
       .eq('status', 'completed')
+      .is('master_contract_id', null) // 메인만 카운트 (get_region_stats 와 일관)
       .is('deleted_at', null)
       .order('expiry_date', { ascending: true, nullsFirst: false })
       .limit(50),
@@ -76,21 +78,21 @@ export default async function DashboardPage({
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
-          title="계약완료"
+          title={STATUS_LABEL.completed}
           value={kpi.completed_count}
           total={kpi.total_active}
           tone="green"
           href="/contracts?status=completed"
         />
         <KpiCard
-          title="체결중"
+          title={STATUS_LABEL.in_progress}
           value={kpi.in_progress_count}
           total={kpi.total_active}
           tone="orange"
           href="/contracts?status=in_progress"
         />
         <KpiCard
-          title="갱신중"
+          title={STATUS_LABEL.updating}
           value={kpi.updating_count}
           total={kpi.total_active}
           tone="blue"

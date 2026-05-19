@@ -7,15 +7,21 @@ import type { Database } from '@/lib/types/database';
  * Vercel Cron / 외부 스케줄러용. CRON_SECRET 헤더로 인증.
  * 만료 도래(실효 만료일 < 오늘) AND status=completed 인 계약을 일괄 terminated 로 전이.
  * SERVICE_ROLE_KEY 가 환경변수에 있으면 그것으로, 없으면 기존 사용자 컨텍스트로 호출.
+ *
+ * 인증: Authorization: Bearer <CRON_SECRET> 헤더 또는 x-cron-secret 헤더만 허용.
+ * URL querystring fallback 은 Vercel access log / referrer / browser history 에 비밀이
+ * 그대로 노출되므로 제거 (Vercel Cron 은 헤더 방식을 공식 지원).
  */
+export const runtime = 'nodejs';
+export const maxDuration = 60;
+
 export async function GET(request: NextRequest) {
   const expected = process.env.CRON_SECRET;
   const provided =
     request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
-    request.headers.get('x-cron-secret') ??
-    request.nextUrl.searchParams.get('secret');
+    request.headers.get('x-cron-secret');
 
-  if (!expected || provided !== expected) {
+  if (!expected || !provided || provided !== expected) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 

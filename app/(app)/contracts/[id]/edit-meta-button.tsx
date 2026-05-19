@@ -10,6 +10,7 @@ type Ctype = Database['public']['Enums']['contract_type'];
 export default function EditMetaButton({
   contract,
   variant = 'full',
+  supplementCount = 0,
 }: {
   contract: {
     id: string;
@@ -28,6 +29,8 @@ export default function EditMetaButton({
     auto_renewal_end_date: string | null;
   };
   variant?: 'full' | 'icon';
+  /** 메인 계약일 때 살아있는 부속 건수 — 일자 수정 시 stale 경고용. */
+  supplementCount?: number;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -51,7 +54,12 @@ export default function EditMetaButton({
           ✏️ 정보 수정
         </button>
       )}
-      <EditMetaModal open={open} onClose={() => setOpen(false)} contract={contract} />
+      <EditMetaModal
+        open={open}
+        onClose={() => setOpen(false)}
+        contract={contract}
+        supplementCount={supplementCount}
+      />
     </>
   );
 }
