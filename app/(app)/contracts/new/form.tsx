@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useTransition } from 'react';
+import { useEffect, useMemo, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { createContractAction, listMasterContractsForLG } from './actions';
 import SuccessModal from '@/app/components/success-modal';
@@ -36,6 +36,7 @@ export default function NewContractForm({
   const [error, setError] = useState<string | null>(null);
 
   const [lgId, setLgId] = useState('');
+  const [sido, setSido] = useState('');
   const [contractingParty, setContractingParty] = useState<Party>('monoplatform');
   const [contractType, setContractType] = useState<Ctype>('parking_enforcement');
   const [masterContractId, setMasterContractId] = useState<string>('');
@@ -79,6 +80,30 @@ export default function NewContractForm({
   }, [lgId, isSupplement]);
 
   const selectedLg = localGovernments.find((lg) => lg.id === lgId);
+
+  // 광역단체 목록 (sido 고유값, 데이터 출현 순서 유지)
+  const sidoList = useMemo(() => {
+    const set: string[] = [];
+    for (const lg of localGovernments) {
+      if (!set.includes(lg.sido)) set.push(lg.sido);
+    }
+    return set;
+  }, [localGovernments]);
+
+  // 선택된 sido 내 시/군/구 목록
+  const sigunguList = useMemo(() => {
+    if (!sido) return [];
+    return localGovernments
+      .filter((lg) => lg.sido === sido)
+      .sort((a, b) => a.full_name.localeCompare(b.full_name, 'ko'));
+  }, [sido, localGovernments]);
+
+  // 검색으로 lgId 변경 시 sido 자동 동기화
+  useEffect(() => {
+    if (selectedLg && selectedLg.sido !== sido) {
+      setSido(selectedLg.sido);
+    }
+  }, [selectedLg, sido]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -153,12 +178,56 @@ export default function NewContractForm({
         <label className="block text-xs font-medium text-slate-700 mb-1">
           지자체 *
         </label>
+
         <LgCombobox
           options={localGovernments}
           value={lgId}
           onChange={setLgId}
         />
-        {selectedLg ? (
+        <p className="mt-1.5 text-[11px] text-slate-500">
+          이름으로 검색 — 예: &quot;남양주&quot;, &quot;군위&quot;, &quot;세종&quot;
+        </p>
+
+        <div className="mt-3 flex items-center gap-3 text-[11px] text-slate-400">
+          <span className="h-px flex-1 bg-slate-200" />
+          또는 광역단체로 선택
+          <span className="h-px flex-1 bg-slate-200" />
+        </div>
+
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <select
+            value={sido}
+            onChange={(e) => {
+              setSido(e.target.value);
+              setLgId('');
+            }}
+            className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white"
+          >
+            <option value="">광역단체 선택</option>
+            {sidoList.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+          <select
+            value={lgId}
+            onChange={(e) => setLgId(e.target.value)}
+            disabled={!sido}
+            className="w-full px-3 py-2 border border-slate-300 rounded text-sm bg-white disabled:bg-slate-50 disabled:text-slate-400"
+          >
+            <option value="">
+              {sido ? '시/군/구 선택' : '먼저 광역단체를 선택하세요'}
+            </option>
+            {sigunguList.map((lg) => (
+              <option key={lg.id} value={lg.id}>
+                {labelFor(lg)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {selectedLg && (
           <p className="mt-2 text-xs text-slate-600">
             선택됨:{' '}
             <span className="font-medium text-slate-900">
@@ -167,10 +236,6 @@ export default function NewContractForm({
             <span className="text-slate-400">
               ({CLASS_LABEL[selectedLg.classification]})
             </span>
-          </p>
-        ) : (
-          <p className="mt-1.5 text-[11px] text-slate-500">
-            지자체 이름을 검색하세요. 예: &quot;남양주&quot;, &quot;군위&quot;, &quot;세종&quot;
           </p>
         )}
       </div>
@@ -371,6 +436,14 @@ export default function NewContractForm({
     )}
     </>
   );
+}
+
+function labelFor(lg: LG): string {
+  // full_name 에서 sido 부분을 떼고 표시 — 드롭다운 안에서는 시/군/구만 보여 깔끔
+  const trimmed = lg.full_name.startsWith(lg.sido + ' ')
+    ? lg.full_name.slice(lg.sido.length + 1)
+    : lg.full_name;
+  return trimmed;
 }
 
 function FormDate({
