@@ -11,7 +11,13 @@ import {
   terminateContract,
 } from './actions';
 import type { Database } from '@/lib/types/database';
-import { STATUS_LABEL, fmtDate, fmtDateTime } from '@/lib/utils';
+import {
+  STATUS_LABEL,
+  fmtDate,
+  fmtDateTime,
+  addMonths,
+  formatAutoRenewalPeriod,
+} from '@/lib/utils';
 import Modal from '@/app/components/modal';
 
 type Status = Database['public']['Enums']['contract_status'];
@@ -25,11 +31,17 @@ type HistoryItem = {
   changed_at: string;
 };
 
+type AutoRenewalInfo = {
+  periodMonths: number;
+  endDate: string | null;
+};
+
 export default function ContractActions({
   contractId,
   status,
   version,
   effectiveExpiry,
+  autoRenewal,
   history,
   userRole,
   parentContractId,
@@ -39,6 +51,7 @@ export default function ContractActions({
   status: Status;
   version: number;
   effectiveExpiry: string | null;
+  autoRenewal: AutoRenewalInfo | null;
   history: HistoryItem[];
   userRole: 'master' | 'accounting' | 'viewer';
   parentContractId: string | null;
@@ -110,6 +123,7 @@ export default function ContractActions({
           contractId={contractId}
           version={version}
           currentExpiry={effectiveExpiry}
+          autoRenewal={autoRenewal}
           onClose={() => setOpen(null)}
           onSuccess={() => {
             setOpen(null);
@@ -240,12 +254,14 @@ function ExtendModal({
   contractId,
   version,
   currentExpiry,
+  autoRenewal,
   onClose,
   onSuccess,
 }: {
   contractId: string;
   version: number;
   currentExpiry: string | null;
+  autoRenewal: AutoRenewalInfo | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -253,6 +269,21 @@ function ExtendModal({
   const [error, setError] = useState<string | null>(null);
   const [newDate, setNewDate] = useState('');
   const [reason, setReason] = useState('');
+
+  // 자동연장 1주기 만큼 미리 보기 — 현재 실효 만료일 + period_months.
+  // auto_renewal_end_date가 있고 다음 주기가 그것을 넘으면 적용 불가.
+  const nextRenewalDate =
+    autoRenewal && currentExpiry
+      ? addMonths(currentExpiry, autoRenewal.periodMonths)
+      : null;
+  const exceedsEnd =
+    !!(autoRenewal?.endDate && nextRenewalDate && nextRenewalDate > autoRenewal.endDate);
+
+  function applyAutoRenewal() {
+    if (!nextRenewalDate || exceedsEnd) return;
+    setNewDate(nextRenewalDate);
+    if (!reason) setReason('자동연장 기간 적용');
+  }
 
   function submit() {
     setError(null);
@@ -278,6 +309,43 @@ function ExtendModal({
         현재 실효 만료일:{' '}
         <b className="tabular-nums">{currentExpiry ? fmtDate(currentExpiry) : '-'}</b>
       </p>
+
+      {autoRenewal && nextRenewalDate && (
+        <div className="mb-3 rounded border border-orange-200 bg-orange-50 p-3">
+          <div className="flex items-start justify-between gap-2 flex-wrap">
+            <div className="text-xs text-orange-900 leading-relaxed">
+              <p>
+                🔄 자동연장 주기:{' '}
+                <b>{formatAutoRenewalPeriod(autoRenewal.periodMonths)}</b>
+                {autoRenewal.endDate && (
+                  <span className="text-slate-600 font-normal">
+                    {' '}
+                    · 최대 {fmtDate(autoRenewal.endDate)}
+                  </span>
+                )}
+              </p>
+              <p className="mt-1">
+                다음 주기 만료일 →{' '}
+                <b className="tabular-nums">{fmtDate(nextRenewalDate)}</b>
+                {exceedsEnd && (
+                  <span className="ml-2 text-rose-700">
+                    (자동연장 종료일 초과 — 적용 불가)
+                  </span>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={applyAutoRenewal}
+              disabled={exceedsEnd}
+              className="shrink-0 text-xs font-medium px-3 py-1.5 rounded bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white"
+            >
+              자동연장 기간 적용
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-3">
         <Field label="새 만료일 *">
           <input

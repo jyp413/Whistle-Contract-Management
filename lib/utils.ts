@@ -98,6 +98,18 @@ export function effectiveExpiry(c: {
   return c.expiry_date;
 }
 
+/**
+ * 날짜 문자열(YYYY-MM-DD)에 개월수를 더한 새 YYYY-MM-DD를 반환.
+ * 자동연장 1주기를 미리 만료일로 굳히는 ExtendModal 의 "자동연장 적용" 버튼이 사용.
+ */
+export function addMonths(dateStr: string, months: number): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setMonth(dt.getMonth() + months);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+}
+
 export function formatAutoRenewalPeriod(
   months: number | null | undefined,
 ): string {

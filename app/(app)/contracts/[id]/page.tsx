@@ -218,6 +218,14 @@ export default async function ContractDetailPage({
             status={contract.status}
             version={contract.version}
             effectiveExpiry={effectiveExpiry(contract)}
+            autoRenewal={
+              contract.auto_renewal && contract.auto_renewal_period_months
+                ? {
+                    periodMonths: contract.auto_renewal_period_months,
+                    endDate: contract.auto_renewal_end_date,
+                  }
+                : null
+            }
             history={(history ?? []).map((h) => ({
               id: h.id,
               from_status: h.from_status,
