@@ -521,6 +521,7 @@ export type Database = {
           completed_monoplatform: number
           full_name: string
           geo_code: string | null
+          has_maintenance: boolean
           in_progress: number
           lg_id: string
           sido: string

@@ -16,6 +16,8 @@ export type LgStat = {
   terminated: number;
   completed_monoplatform: number;
   completed_imcity: number;
+  /** 살아있는(status != terminated) 유지보수(mou) 부속 보유 여부. */
+  has_maintenance: boolean;
 };
 
 export type PartyTint = 'monoplatform' | 'imcity' | 'none';

@@ -209,6 +209,7 @@ export function RegionMap({ stats }: Props) {
                 const sum = sumParty(vf.lgs);
                 const completedTotal = sum.completed_monoplatform + sum.completed_imcity;
                 const subLabel = noData ? '데이터 없음' : `${completedTotal}건`;
+                const hasMaintenance = vf.lgs.some((l) => l.has_maintenance);
                 let labelTransform: string;
                 if (offshore) {
                   // offshore transform과 동일하게 centroid 위치를 SVG 위로 옮김.
@@ -236,6 +237,11 @@ export function RegionMap({ stats }: Props) {
                       y={-2}
                     >
                       {vf.label}
+                      {hasMaintenance && (
+                        <tspan className="fill-amber-500" dx={3}>
+                          ★
+                        </tspan>
+                      )}
                     </text>
                     <text
                       textAnchor="middle"
@@ -297,7 +303,7 @@ function Legend() {
         ))}
         <span className="text-slate-400">높음</span>
       </div>
-      <div className="flex items-center gap-3 pt-0.5">
+      <div className="flex items-center gap-3 pt-0.5 flex-wrap">
         <span className="flex items-center gap-1.5">
           <svg width="14" height="14"><rect width="14" height="14" className="fill-slate-200" /></svg>
           미체결
@@ -305,6 +311,10 @@ function Legend() {
         <span className="flex items-center gap-1.5">
           <svg width="14" height="14"><rect width="14" height="14" fill="#f1f5f9" stroke="#cbd5e1" /></svg>
           데이터 없음
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="text-amber-500 font-bold leading-none">★</span>
+          유지보수 보유
         </span>
         <span className="text-slate-400">· 농도 = 지자체 체결율</span>
       </div>
