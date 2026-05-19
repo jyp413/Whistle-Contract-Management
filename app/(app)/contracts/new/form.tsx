@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import {
@@ -8,11 +9,14 @@ import {
   listMasterContractsForLG,
   type MasterContractSummary,
   type BatchCreatedItem,
+  type DuplicateHit,
 } from './actions';
 import { registerUploadedFile } from '../[id]/actions';
 import SuccessModal from '@/app/components/success-modal';
+import Modal from '@/app/components/modal';
 import LgCombobox, { type LgOption } from '@/app/components/lg-combobox';
 import { PARTY_LABEL, TYPE_LABEL, STATUS_LABEL, fmtDate } from '@/lib/utils';
+import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 import type { Database } from '@/lib/types/database';
 
 type LG = LgOption;
@@ -44,8 +48,10 @@ const EMPTY_SLOT: FileSlot = { file: null, status: 'idle', message: null };
 
 export default function NewContractForm({
   localGovernments,
+  initialLgId,
 }: {
   localGovernments: LG[];
+  initialLgId?: string;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -54,10 +60,15 @@ export default function NewContractForm({
     | { lgName: string; created: BatchCreatedItem[]; uploadSummary: string }
     | null
   >(null);
+  const [duplicates, setDuplicates] = useState<DuplicateHit[] | null>(null);
 
-  // 지자체 선택
-  const [lgId, setLgId] = useState('');
-  const [sido, setSido] = useState('');
+  // 지자체 선택 — initialLgId(/uncontracted 에서 진입 시) 가 있으면 미리 선택
+  const [lgId, setLgId] = useState(initialLgId ?? '');
+  const [sido, setSido] = useState(
+    initialLgId
+      ? (localGovernments.find((l) => l.id === initialLgId)?.sido ?? '')
+      : '',
+  );
   const selectedLg = localGovernments.find((lg) => lg.id === lgId);
 
   // 주체
@@ -163,6 +174,10 @@ export default function NewContractForm({
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    await runCreate(false);
+  }
+
+  async function runCreate(force: boolean) {
     setError(null);
     if (!lgId) return setError('지자체를 선택하세요.');
     if (totalChecked === 0)
@@ -231,11 +246,17 @@ export default function NewContractForm({
             ? autoRenewalEndDate || null
             : null
           : null,
+        force,
       });
+      if (result.duplicates && result.duplicates.length > 0) {
+        setDuplicates(result.duplicates);
+        return;
+      }
       if (result.error || !result.created) {
         setError(result.error ?? '등록 실패');
         return;
       }
+      setDuplicates(null);
       const created = result.created;
       // 파일 업로드 — 각 생성된 계약마다 슬롯의 파일이 있으면 업로드
       const supabase = createClient();
@@ -602,6 +623,67 @@ export default function NewContractForm({
           onClose={handleSuccessConfirm}
           confirmLabel="확인 — 첫 계약 상세로"
         />
+      )}
+
+      {duplicates && (
+        <Modal
+          title="이미 등록된 계약이 있습니다"
+          onClose={() => !pending && setDuplicates(null)}
+          maxWidth="lg"
+          closeOnBackdrop={!pending}
+        >
+          <p className="text-sm text-slate-700">
+            아래 <b>{duplicates.length}건</b>의 살아있는 동종 계약이 이미 등록되어 있습니다.
+            그래도 계속 등록하시겠습니까?
+          </p>
+          <ul className="mt-3 divide-y divide-slate-100 border border-slate-200 rounded max-h-80 overflow-y-auto">
+            {duplicates.map((d) => (
+              <li key={d.id} className="px-3 py-2.5 text-sm">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium text-slate-900">{d.lg_name}</span>
+                  <TypeBadge ctype={d.contract_type} isSupplement={!d.is_main} />
+                  <PartyBadge party={d.contracting_party} />
+                  <StatusBadge status={d.status as Database['public']['Enums']['contract_status']} />
+                </div>
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-[11px] text-slate-500 tabular-nums">
+                    체결일 {fmtDate(d.signed_date)}
+                  </p>
+                  <Link
+                    href={`/contracts/${d.id}`}
+                    target="_blank"
+                    rel="noopener"
+                    className="text-[11px] text-indigo-600 hover:underline"
+                  >
+                    상세 보기 →
+                  </Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1.5 mt-3">
+            ⓘ 같은 지자체에 같은 주체·유형의 계약이 여러 건 존재할 수 있습니다 (예: 갱신 전·후 병행).
+            의도한 등록이면 &ldquo;그대로 등록&rdquo;을 선택하세요.
+          </p>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setDuplicates(null)}
+              disabled={pending}
+              className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+            >
+              취소
+            </button>
+            <button
+              type="button"
+              onClick={() => runCreate(true)}
+              disabled={pending}
+              className="text-sm px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded font-medium"
+            >
+              {pending ? '등록 중…' : '그대로 등록'}
+            </button>
+          </div>
+        </Modal>
       )}
     </>
   );

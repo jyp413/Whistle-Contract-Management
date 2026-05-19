@@ -51,6 +51,12 @@ export default async function AppLayout({
               >
                 만료 임박
               </Link>
+              <Link
+                href="/uncontracted"
+                className="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100"
+              >
+                미계약 현황
+              </Link>
               {user.role !== 'viewer' && (
                 <Link
                   href="/activity"

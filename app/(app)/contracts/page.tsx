@@ -53,6 +53,10 @@ const SORT_KEYS: ReadonlyArray<SortKey> = [
   'updated_at',
 ];
 
+const PAGE_SIZES = [10, 20, 50, 100] as const;
+const DEFAULT_PAGE_SIZE = 10;
+const SERVER_FETCH_CAP = 500;
+
 export default async function ContractsListPage({
   searchParams,
 }: {
@@ -63,6 +67,8 @@ export default async function ContractsListPage({
     party?: string;
     sort?: string;
     dir?: string;
+    page?: string;
+    size?: string;
   }>;
 }) {
   const me = await requireUser();
@@ -75,6 +81,12 @@ export default async function ContractsListPage({
     ? (sp.sort as SortKey)
     : 'lg_name';
   const dir: 'asc' | 'desc' = sp.dir === 'desc' ? 'desc' : 'asc';
+  const sizeRaw = parseInt(sp.size ?? '', 10);
+  const size: (typeof PAGE_SIZES)[number] = (PAGE_SIZES as readonly number[]).includes(sizeRaw)
+    ? (sizeRaw as (typeof PAGE_SIZES)[number])
+    : DEFAULT_PAGE_SIZE;
+  const pageRaw = parseInt(sp.page ?? '1', 10);
+  const requestedPage = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
 
   const supabase = await createClient();
   let query = supabase
@@ -86,7 +98,7 @@ export default async function ContractsListPage({
     .order('local_government_id', { ascending: true })
     .order('master_contract_id', { ascending: true, nullsFirst: true })
     .order('updated_at', { ascending: false })
-    .limit(200);
+    .limit(SERVER_FETCH_CAP);
 
   if (status !== 'all') {
     query = query.eq('status', status);
@@ -148,17 +160,54 @@ export default async function ContractsListPage({
   };
   filtered = [...filtered].sort(sortBy);
 
-  // 각 계약의 최신 파일을 한 번에 조회 → contract_id → file 매핑
-  const contractIds = filtered.map((c) => c.id);
+  // 페이지네이션 — 그루핑 모드(sort=lg_name)에서는 메인 단위로 페이지를 자르고
+  // 페이지에 들어간 메인의 부속들은 같은 페이지에 함께 포함시킨다 (페이지 경계로 분리되지 않게).
+  const groupByLg = sort === 'lg_name';
+  let totalEntries: number;
+  let paged: typeof filtered;
+
+  if (groupByLg) {
+    const mains = filtered.filter((c) => !c.master_contract_id);
+    const suppsByMain = new Map<string, typeof filtered>();
+    for (const c of filtered) {
+      if (!c.master_contract_id) continue;
+      const arr = suppsByMain.get(c.master_contract_id) ?? [];
+      arr.push(c);
+      suppsByMain.set(c.master_contract_id, arr);
+    }
+    totalEntries = mains.length;
+    const totalPagesCalc = Math.max(1, Math.ceil(totalEntries / size));
+    const page = Math.min(Math.max(1, requestedPage), totalPagesCalc);
+    const start = (page - 1) * size;
+    const pageMains = mains.slice(start, start + size);
+    paged = [];
+    for (const m of pageMains) {
+      paged.push(m);
+      paged.push(...(suppsByMain.get(m.id) ?? []));
+    }
+  } else {
+    totalEntries = filtered.length;
+    const totalPagesCalc = Math.max(1, Math.ceil(totalEntries / size));
+    const page = Math.min(Math.max(1, requestedPage), totalPagesCalc);
+    const start = (page - 1) * size;
+    paged = filtered.slice(start, start + size);
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalEntries / size));
+  const currentPage = Math.min(Math.max(1, requestedPage), totalPages);
+  const fetchCapped = (contracts?.length ?? 0) >= SERVER_FETCH_CAP;
+
+  // 파일 매핑 — 현재 페이지에 표시될 행만 조회
+  const visibleIds = paged.map((c) => c.id);
   const fileMap: Record<
     string,
     { id: string; original_filename: string }
   > = {};
-  if (contractIds.length > 0) {
+  if (visibleIds.length > 0) {
     const { data: files } = await supabase
       .from('contract_files')
       .select('contract_id, id, original_filename')
-      .in('contract_id', contractIds)
+      .in('contract_id', visibleIds)
       .eq('is_latest', true)
       .is('deleted_at', null);
     for (const f of files ?? []) {
@@ -171,6 +220,7 @@ export default async function ContractsListPage({
   const userCanDownload = canWrite(me.role);
   const userCanEdit = canWrite(me.role);
 
+  // 필터/정렬 변경 시 page 는 1 로 reset (querystring 에서 제외). size 는 사용자 선호로 유지.
   const baseParams = (overrides: Record<string, string>) => {
     const params: Record<string, string> = {};
     if (status !== 'all') params.status = status;
@@ -179,11 +229,29 @@ export default async function ContractsListPage({
     if (q) params.q = q;
     if (sort !== 'lg_name') params.sort = sort;
     if (dir !== 'asc') params.dir = dir;
+    if (size !== DEFAULT_PAGE_SIZE) params.size = String(size);
     for (const [k, v] of Object.entries(overrides)) {
       if (v === 'all' || !v) delete params[k];
       else params[k] = v;
     }
     return new URLSearchParams(params).toString();
+  };
+
+  // 페이지 네비게이션 — 필터/정렬/사이즈 유지, page 만 변경
+  const pageHref = (p: number) => {
+    const params = new URLSearchParams(baseParams({}));
+    if (p > 1) params.set('page', String(p));
+    const qs = params.toString();
+    return qs ? `/contracts?${qs}` : '/contracts';
+  };
+
+  // 페이지 사이즈 변경 — page=1 로 reset
+  const sizeHref = (s: number) => {
+    const params = new URLSearchParams(baseParams({}));
+    params.delete('size');
+    if (s !== DEFAULT_PAGE_SIZE) params.set('size', String(s));
+    const qs = params.toString();
+    return qs ? `/contracts?${qs}` : '/contracts';
   };
 
   const sortLink = (key: SortKey): string => {
@@ -325,14 +393,84 @@ export default async function ContractsListPage({
       )}
 
       <ContractsTable
-        rows={filtered}
+        rows={paged}
         fileMap={fileMap}
         userCanDownload={userCanDownload}
         userCanEdit={userCanEdit}
-        groupByLg={sort === 'lg_name'}
+        groupByLg={groupByLg}
         sortLinks={sortLinks}
         sortArrows={sortArrows}
       />
+
+      {fetchCapped && (
+        <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+          ⚠ 서버 조회 한도({SERVER_FETCH_CAP}건)에 도달했습니다. 필터를 좁히면 정확한 페이지네이션이 가능합니다.
+        </p>
+      )}
+
+      {/* 페이지네이션 — 1건 이상이면 항상 표시 */}
+      {totalEntries > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-slate-500">
+              {groupByLg ? '메인' : '전체'} {totalEntries}건 ·{' '}
+              <b className="text-slate-700 tabular-nums">{currentPage}</b> / {totalPages} 페이지
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1">
+              <span className="text-slate-500">페이지당</span>
+              {PAGE_SIZES.map((s) => (
+                <Link
+                  key={s}
+                  href={sizeHref(s)}
+                  scroll={false}
+                  className={`px-2 py-1 rounded border tabular-nums ${
+                    size === s
+                      ? 'bg-slate-900 border-slate-900 text-white'
+                      : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  {s}
+                </Link>
+              ))}
+            </div>
+            <div className="flex items-center gap-1">
+              {currentPage > 1 ? (
+                <Link
+                  href={pageHref(currentPage - 1)}
+                  scroll={false}
+                  className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+                  aria-label="이전 페이지"
+                >
+                  ‹ 이전
+                </Link>
+              ) : (
+                <span className="px-2.5 py-1 rounded border border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed">
+                  ‹ 이전
+                </span>
+              )}
+              <span className="px-2 text-slate-500 tabular-nums">
+                {currentPage} / {totalPages}
+              </span>
+              {currentPage < totalPages ? (
+                <Link
+                  href={pageHref(currentPage + 1)}
+                  scroll={false}
+                  className="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700"
+                  aria-label="다음 페이지"
+                >
+                  다음 ›
+                </Link>
+              ) : (
+                <span className="px-2.5 py-1 rounded border border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed">
+                  다음 ›
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

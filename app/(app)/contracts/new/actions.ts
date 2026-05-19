@@ -203,6 +203,8 @@ const BatchSchema = z.object({
   auto_renewal: z.boolean(),
   auto_renewal_period_months: z.number().int().positive().nullable(),
   auto_renewal_end_date: z.string().nullable(),
+  // 중복 경고 모달에서 사용자가 "그대로 등록" 클릭 시 true 로 재호출
+  force: z.boolean().optional().default(false),
 });
 
 export type BatchCreatedItem = {
@@ -214,9 +216,24 @@ export type BatchCreatedItem = {
     | 'other';
 };
 
+export type DuplicateHit = {
+  id: string;
+  lg_name: string;
+  contract_type:
+    | 'parking_enforcement'
+    | 'personal_info_outsourcing'
+    | 'mou'
+    | 'other';
+  contracting_party: 'monoplatform' | 'imcity';
+  status: string;
+  signed_date: string | null;
+  is_main: boolean;
+};
+
 export async function createContractBatch(input: unknown): Promise<
-  | { error: string; created?: undefined }
-  | { error?: undefined; created: BatchCreatedItem[] }
+  | { error: string; created?: undefined; duplicates?: undefined }
+  | { duplicates: DuplicateHit[]; created?: undefined; error?: undefined }
+  | { error?: undefined; duplicates?: undefined; created: BatchCreatedItem[] }
 > {
   const me = await requireWriter();
   const parsed = BatchSchema.safeParse(input);
@@ -234,6 +251,22 @@ export async function createContractBatch(input: unknown): Promise<
     return { error: '부속 계약만 등록할 때는 기존 메인 계약을 선택해야 합니다.' };
   }
 
+  const supabaseEarly = await createClient();
+
+  // 중복 사전 검사 (force=false 일 때만) — 사용자가 확인 모달에서 "그대로 등록"을 누르면 force=true 로 재호출.
+  if (!v.force) {
+    const dupes = await findDuplicates(supabaseEarly, {
+      local_government_id: v.local_government_id,
+      contracting_party: v.contracting_party,
+      include_main: v.include_main,
+      existing_master_id: v.existing_master_id,
+      supplements: v.supplements,
+    });
+    if (dupes.length > 0) {
+      return { duplicates: dupes };
+    }
+  }
+
   // 메인 자체 등록 시 일자 검증 (부속만 등록 시는 메인 일자가 사용됨)
   let datesSource: {
     signed_date: string | null;
@@ -245,7 +278,7 @@ export async function createContractBatch(input: unknown): Promise<
     auto_renewal_end_date: string | null;
   };
   let mainId: string | null = null;
-  const supabase = await createClient();
+  const supabase = supabaseEarly;
 
   if (v.include_main) {
     if (v.expiry_date && v.effective_date && v.expiry_date < v.effective_date) {
@@ -427,6 +460,79 @@ export async function createContractBatch(input: unknown): Promise<
   }
 
   return { created };
+}
+
+/**
+ * 살아있는(=terminated가 아닌, soft-delete 안 된) 동종 계약을 찾는다.
+ * - 메인 등록 (`include_main=true`): 같은 LG + 같은 주체 + parking_enforcement + master_contract_id IS NULL
+ * - 부속 등록 (existing_master_id 지정): 같은 master + 같은 contract_type
+ *   (include_main=true 인 경우는 새 메인이라 부속 중복 발생 불가 — 검사 생략)
+ *
+ * 사용자가 confirm 모달에서 "그대로 등록"을 누르면 액션이 force=true 로 재호출되어 이 검사를 건너뛴다.
+ */
+async function findDuplicates(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  v: {
+    local_government_id: string;
+    contracting_party: 'monoplatform' | 'imcity';
+    include_main: boolean;
+    existing_master_id: string | null;
+    supplements: readonly SupplementType[];
+  },
+): Promise<DuplicateHit[]> {
+  const hits: DuplicateHit[] = [];
+
+  // 1) 메인 중복
+  if (v.include_main) {
+    const { data: mainHits } = await supabase
+      .from('contracts')
+      .select(
+        'id, status, signed_date, contract_type, contracting_party, local_governments(full_name)',
+      )
+      .eq('local_government_id', v.local_government_id)
+      .eq('contracting_party', v.contracting_party)
+      .eq('contract_type', 'parking_enforcement')
+      .is('master_contract_id', null)
+      .neq('status', 'terminated')
+      .is('deleted_at', null);
+    for (const r of mainHits ?? []) {
+      hits.push({
+        id: r.id,
+        lg_name: r.local_governments?.full_name ?? '-',
+        contract_type: r.contract_type,
+        contracting_party: r.contracting_party,
+        status: r.status,
+        signed_date: r.signed_date,
+        is_main: true,
+      });
+    }
+  }
+
+  // 2) 부속 중복 — 기존 메인 아래에 같은 type 부속이 이미 살아있는 경우
+  if (!v.include_main && v.existing_master_id && v.supplements.length > 0) {
+    const { data: supHits } = await supabase
+      .from('contracts')
+      .select(
+        'id, status, signed_date, contract_type, contracting_party, master_contract_id, local_governments(full_name)',
+      )
+      .eq('master_contract_id', v.existing_master_id)
+      .in('contract_type', v.supplements as unknown as SupplementType[])
+      .neq('status', 'terminated')
+      .is('deleted_at', null);
+    for (const r of supHits ?? []) {
+      hits.push({
+        id: r.id,
+        lg_name: r.local_governments?.full_name ?? '-',
+        contract_type: r.contract_type,
+        contracting_party: r.contracting_party,
+        status: r.status,
+        signed_date: r.signed_date,
+        is_main: false,
+      });
+    }
+  }
+
+  return hits;
 }
 
 async function recordCreateSideEffects(
