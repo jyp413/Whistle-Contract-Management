@@ -21,6 +21,7 @@ import FilePreviewButton from './file-preview';
 import EditMetaButton from './edit-meta-button';
 import FileDeleteButton from './file-delete-button';
 import LGContactCard from './lg-contact-card';
+import SupplementCard, { type SupplementInfo } from './supplement-card';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,29 +61,81 @@ export default async function ContractDetailPage({
     notFound();
   }
 
-  const [{ data: files }, { data: history }, { data: extensions }] =
-    await Promise.all([
-      supabase
-        .from('contract_files')
-        .select(
-          'id, original_filename, file_size_bytes, version_no, is_latest, uploaded_at, storage_path',
-        )
-        .eq('contract_id', id)
-        .is('deleted_at', null)
-        .order('version_no', { ascending: false }),
-      supabase
-        .from('contract_status_history')
-        .select(
-          'id, from_status, to_status, transition_type, reason, is_correction, changed_at, trigger_event',
-        )
-        .eq('contract_id', id)
-        .order('changed_at', { ascending: false }),
-      supabase
-        .from('contract_extensions')
-        .select('id, previous_expiry_date, new_expiry_date, reason, extended_at')
-        .eq('contract_id', id)
-        .order('extended_at', { ascending: false }),
-    ]);
+  const isMain = !contract.master_contract_id;
+
+  const [
+    { data: files },
+    { data: history },
+    { data: extensions },
+    { data: supplements },
+  ] = await Promise.all([
+    supabase
+      .from('contract_files')
+      .select(
+        'id, original_filename, file_size_bytes, version_no, is_latest, uploaded_at, storage_path',
+      )
+      .eq('contract_id', id)
+      .is('deleted_at', null)
+      .order('version_no', { ascending: false }),
+    supabase
+      .from('contract_status_history')
+      .select(
+        'id, from_status, to_status, transition_type, reason, is_correction, changed_at, trigger_event',
+      )
+      .eq('contract_id', id)
+      .order('changed_at', { ascending: false }),
+    supabase
+      .from('contract_extensions')
+      .select('id, previous_expiry_date, new_expiry_date, reason, extended_at')
+      .eq('contract_id', id)
+      .order('extended_at', { ascending: false }),
+    isMain
+      ? supabase
+          .from('contracts')
+          .select(
+            'id, status, contract_type, signed_date, expiry_date, extended_expiry_date',
+          )
+          .eq('master_contract_id', id)
+          .is('deleted_at', null)
+          .order('contract_type', { ascending: true })
+      : Promise.resolve({ data: [] as never[] }),
+  ]);
+
+  // 부속들의 최신 파일을 한 번에 조회
+  const supplementInfos: SupplementInfo[] = [];
+  if (supplements && supplements.length > 0) {
+    const supIds = supplements.map((s) => s.id);
+    const { data: supFiles } = await supabase
+      .from('contract_files')
+      .select(
+        'contract_id, id, storage_path, original_filename, version_no, file_size_bytes, uploaded_at',
+      )
+      .in('contract_id', supIds)
+      .eq('is_latest', true)
+      .is('deleted_at', null);
+    const fileByContract = new Map<string, SupplementInfo['latest_file']>();
+    for (const f of supFiles ?? []) {
+      fileByContract.set(f.contract_id, {
+        id: f.id,
+        storage_path: f.storage_path,
+        original_filename: f.original_filename,
+        version_no: f.version_no,
+        file_size_bytes: f.file_size_bytes,
+        uploaded_at: f.uploaded_at,
+      });
+    }
+    for (const s of supplements) {
+      supplementInfos.push({
+        id: s.id,
+        status: s.status,
+        contract_type: s.contract_type,
+        signed_date: s.signed_date,
+        expiry_date: s.expiry_date,
+        extended_expiry_date: s.extended_expiry_date,
+        latest_file: fileByContract.get(s.id) ?? null,
+      });
+    }
+  }
 
   const hasFiles = (files?.length ?? 0) > 0;
   const writer = canWrite(me.role);
@@ -328,6 +381,28 @@ export default async function ContractDetailPage({
           </table>
         )}
       </section>
+
+      {isMain && supplementInfos.length > 0 && (
+        <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900">
+              부속 계약 ({supplementInfos.length})
+            </h2>
+            <p className="text-[11px] text-slate-500">
+              일자는 메인에서 상속됩니다. 각 부속의 PDF는 아래에서 직접 업로드하세요.
+            </p>
+          </div>
+          <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+            {supplementInfos.map((s) => (
+              <SupplementCard
+                key={s.id}
+                supplement={s}
+                canUpload={writer}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <section className="bg-white border border-slate-200 rounded-lg overflow-hidden">

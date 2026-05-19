@@ -2,22 +2,9 @@ import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import ZipMenu from './zip-menu';
-import RowPreview from './row-preview';
-import {
-  STATUS_LABEL,
-  STATUS_BADGE,
-  PARTY_LABEL,
-  PARTY_BADGE,
-  TYPE_LABEL,
-  TYPE_BADGE,
-  fmtDate,
-  fmtDateTime,
-  canWrite,
-  effectiveExpiry,
-  formatAutoRenewalPeriod,
-} from '@/lib/utils';
+import ContractsTable, { type SortKey } from './contracts-table';
+import { canWrite, effectiveExpiry } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
-import EditMetaButton from './[id]/edit-meta-button';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,15 +33,6 @@ const PARTY_FILTERS: { key: Party | 'all'; label: string }[] = [
   { key: 'monoplatform', label: '모노플랫폼' },
   { key: 'imcity', label: '아이엠시티' },
 ];
-
-type SortKey =
-  | 'lg_name'
-  | 'type'
-  | 'party'
-  | 'status'
-  | 'signed_date'
-  | 'effective_expiry'
-  | 'updated_at';
 
 const SORT_KEYS: ReadonlyArray<SortKey> = [
   'lg_name',
@@ -163,10 +141,10 @@ export default async function ContractsListPage({
 
   // 각 계약의 최신 파일을 한 번에 조회 → contract_id → file 매핑
   const contractIds = filtered.map((c) => c.id);
-  const fileMap = new Map<
+  const fileMap: Record<
     string,
     { storage_path: string; original_filename: string }
-  >();
+  > = {};
   if (contractIds.length > 0) {
     const { data: files } = await supabase
       .from('contract_files')
@@ -175,10 +153,10 @@ export default async function ContractsListPage({
       .eq('is_latest', true)
       .is('deleted_at', null);
     for (const f of files ?? []) {
-      fileMap.set(f.contract_id, {
+      fileMap[f.contract_id] = {
         storage_path: f.storage_path,
         original_filename: f.original_filename,
-      });
+      };
     }
   }
   const userCanDownload = canWrite(me.role);
@@ -208,6 +186,26 @@ export default async function ContractsListPage({
     if (sort !== key) return '';
     return dir === 'asc' ? ' ▲' : ' ▼';
   };
+
+  const sortLinks = {
+    lg_name: sortLink('lg_name'),
+    type: sortLink('type'),
+    party: sortLink('party'),
+    status: sortLink('status'),
+    signed_date: sortLink('signed_date'),
+    effective_expiry: sortLink('effective_expiry'),
+    updated_at: sortLink('updated_at'),
+  } satisfies Record<SortKey, string>;
+
+  const sortArrows = {
+    lg_name: sortArrow('lg_name'),
+    type: sortArrow('type'),
+    party: sortArrow('party'),
+    status: sortArrow('status'),
+    signed_date: sortArrow('signed_date'),
+    effective_expiry: sortArrow('effective_expiry'),
+    updated_at: sortArrow('updated_at'),
+  } satisfies Record<SortKey, string>;
 
   return (
     <div className="space-y-4">
@@ -317,134 +315,15 @@ export default async function ContractsListPage({
         </p>
       )}
 
-      <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-xs text-slate-500 bg-slate-50">
-              <th className="text-left px-4 py-2 font-medium w-12">No</th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('lg_name')} className="hover:text-slate-900">지자체{sortArrow('lg_name')}</Link>
-              </th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('type')} className="hover:text-slate-900">유형{sortArrow('type')}</Link>
-              </th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('party')} className="hover:text-slate-900">주체{sortArrow('party')}</Link>
-              </th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('status')} className="hover:text-slate-900">상태{sortArrow('status')}</Link>
-              </th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('signed_date')} className="hover:text-slate-900">체결일{sortArrow('signed_date')}</Link>
-              </th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('effective_expiry')} className="hover:text-slate-900">실효 만료일{sortArrow('effective_expiry')}</Link>
-              </th>
-              <th className="text-left px-4 py-2 font-medium">
-                <Link href={sortLink('updated_at')} className="hover:text-slate-900">최종 수정{sortArrow('updated_at')}</Link>
-              </th>
-              <th className="text-right px-4 py-2 font-medium">수정</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.length === 0 && (
-              <tr>
-                <td colSpan={9} className="px-4 py-10 text-center text-slate-400">
-                  계약이 없습니다.
-                </td>
-              </tr>
-            )}
-            {filtered.map((c, idx) => {
-              const prev = idx > 0 ? filtered[idx - 1] : null;
-              // 지자체 그루핑 표시는 lg_name 정렬일 때만 의미가 있음
-              const sameLg = sort === 'lg_name' && prev && prev.local_government_id === c.local_government_id;
-              const isSupplement = !!c.master_contract_id;
-              return (
-                <tr
-                  key={c.id}
-                  className={`border-t border-slate-100 hover:bg-slate-50 ${sameLg ? 'bg-slate-50/50' : ''}`}
-                >
-                  <td className="px-4 py-2 text-slate-500 tabular-nums">{idx + 1}</td>
-                  <td className="px-4 py-2">
-                    <Link
-                      href={`/contracts/${c.id}`}
-                      className={`hover:text-indigo-600 ${sameLg ? 'text-slate-400 pl-4' : 'text-slate-900 font-medium'}`}
-                    >
-                      {sameLg ? '└' : ''} {c.local_governments?.full_name ?? '-'}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${TYPE_BADGE[c.contract_type]}`}>
-                      {TYPE_LABEL[c.contract_type]}
-                      {isSupplement ? '·부속' : '·메인'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${PARTY_BADGE[c.contracting_party]}`}>
-                      {PARTY_LABEL[c.contracting_party]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <span
-                      className={`inline-flex items-center text-[11px] font-medium px-2 py-0.5 rounded ring-1 ring-inset ${STATUS_BADGE[c.status]}`}
-                    >
-                      {STATUS_LABEL[c.status]}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 tabular-nums">{fmtDate(c.signed_date)}</td>
-                  <td className="px-4 py-2 tabular-nums">
-                    <div className="flex items-center gap-1.5">
-                      <span>{fmtDate(effectiveExpiry(c))}</span>
-                      {c.auto_renewal && (
-                        <span
-                          className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset ring-orange-200 bg-orange-50 text-orange-700"
-                          title={
-                            c.auto_renewal_end_date
-                              ? `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)} (최대 ${c.auto_renewal_end_date})`
-                              : `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)}`
-                          }
-                        >
-                          🔄 {formatAutoRenewalPeriod(c.auto_renewal_period_months)}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 text-slate-600 text-xs">{fmtDateTime(c.updated_at)}</td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="inline-flex items-center gap-1">
-                      <RowPreview
-                        file={fileMap.get(c.id) ?? null}
-                        canDownload={userCanDownload}
-                      />
-                      {userCanEdit && (
-                        <EditMetaButton
-                          variant="icon"
-                          contract={{
-                            id: c.id,
-                            version: c.version,
-                            local_government_id: c.local_government_id,
-                            signed_date: c.signed_date,
-                            effective_date: c.effective_date,
-                            expiry_date: c.expiry_date,
-                            extended_expiry_date: c.extended_expiry_date,
-                            memo: c.memo,
-                            contract_type: c.contract_type,
-                            contracting_party: c.contracting_party,
-                            master_contract_id: c.master_contract_id,
-                            auto_renewal: c.auto_renewal,
-                            auto_renewal_period_months: c.auto_renewal_period_months,
-                            auto_renewal_end_date: c.auto_renewal_end_date,
-                          }}
-                        />
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <ContractsTable
+        rows={filtered}
+        fileMap={fileMap}
+        userCanDownload={userCanDownload}
+        userCanEdit={userCanEdit}
+        groupByLg={sort === 'lg_name'}
+        sortLinks={sortLinks}
+        sortArrows={sortArrows}
+      />
     </div>
   );
 }
