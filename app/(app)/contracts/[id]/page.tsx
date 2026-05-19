@@ -93,7 +93,7 @@ export default async function ContractDetailPage({
       ? supabase
           .from('contracts')
           .select(
-            'id, status, contract_type, signed_date, expiry_date, extended_expiry_date',
+            'id, status, version, contract_type, signed_date, expiry_date, extended_expiry_date',
           )
           .eq('master_contract_id', id)
           .is('deleted_at', null)
@@ -128,6 +128,7 @@ export default async function ContractDetailPage({
       supplementInfos.push({
         id: s.id,
         status: s.status,
+        version: s.version,
         contract_type: s.contract_type,
         signed_date: s.signed_date,
         expiry_date: s.expiry_date,

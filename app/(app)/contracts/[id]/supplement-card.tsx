@@ -1,10 +1,10 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
-import { registerUploadedFile } from './actions';
+import { confirmCompletion, registerUploadedFile } from './actions';
 import FilePreviewButton from './file-preview';
 import {
   STATUS_LABEL,
@@ -24,6 +24,7 @@ const MAX_BYTES = 50 * 1024 * 1024;
 export type SupplementInfo = {
   id: string;
   status: Status;
+  version: number;
   contract_type: Ctype;
   signed_date: string | null;
   expiry_date: string | null;
@@ -52,6 +53,12 @@ export default function SupplementCard({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [completing, startCompleteTransition] = useTransition();
+  const [completeError, setCompleteError] = useState<string | null>(null);
+
+  const canConfirmComplete =
+    supplement.status === 'in_progress' || supplement.status === 'updating';
 
   async function handleUpload(file: File) {
     setError(null);
@@ -105,6 +112,27 @@ export default function SupplementCard({
     setSuccess(`v${reg.versionNo} 업로드 완료`);
     if (fileRef.current) fileRef.current.value = '';
     router.refresh();
+
+    // 메인과 동일한 흐름: 체결중/갱신중 상태에서 업로드 직후 계약완료 모달
+    if (canConfirmComplete) {
+      setConfirmOpen(true);
+    }
+  }
+
+  function doConfirmCompletion() {
+    setCompleteError(null);
+    startCompleteTransition(async () => {
+      const r = await confirmCompletion({
+        contractId: supplement.id,
+        expectedVersion: supplement.version,
+      });
+      if (r.error) {
+        setCompleteError(r.error);
+        return;
+      }
+      setConfirmOpen(false);
+      router.refresh();
+    });
   }
 
   const effectiveExpiryStr = fmtDate(
@@ -222,6 +250,51 @@ export default function SupplementCard({
               ✗ {error}
             </p>
           )}
+        </div>
+      )}
+
+      {confirmOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4"
+          onClick={() => !completing && setConfirmOpen(false)}
+        >
+          <div
+            className="bg-white rounded-lg shadow-xl w-full max-w-sm p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold text-slate-900">
+              부속 계약 상태 변경
+            </h3>
+            <p className="text-sm text-slate-700 mt-2">
+              <b>{TYPE_LABEL[supplement.contract_type]} (부속)</b> 파일이
+              업로드되었습니다.
+              <br />
+              계약 상태를 <b>「계약완료」</b>로 변경하시겠습니까?
+            </p>
+            {completeError && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
+                {completeError}
+              </p>
+            )}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(false)}
+                disabled={completing}
+                className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+              >
+                나중에
+              </button>
+              <button
+                type="button"
+                onClick={doConfirmCompletion}
+                disabled={completing}
+                className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
+              >
+                {completing ? '처리 중…' : '확인 — 계약완료로 변경'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
