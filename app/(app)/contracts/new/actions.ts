@@ -189,12 +189,35 @@ export async function createContractAction(input: unknown): Promise<
 const SUPPLEMENT_TYPES = ['personal_info_outsourcing', 'mou', 'other'] as const;
 type SupplementType = (typeof SUPPLEMENT_TYPES)[number];
 
+// mou(유지보수) 부속은 메인과 다른 일자·자동연장·계약금액을 보유 — 자체 필드 동반.
+// personal_info_outsourcing / other 부속은 메인 일자를 그대로 상속 — type 만 보냄.
+const MouSupplementSchema = z.object({
+  type: z.literal('mou'),
+  signed_date: z.string().nullable(),
+  effective_date: z.string().nullable(),
+  expiry_date: z.string().nullable(),
+  extended_expiry_date: z.string().nullable(),
+  auto_renewal: z.boolean(),
+  auto_renewal_period_months: z.number().int().positive().nullable(),
+  auto_renewal_end_date: z.string().nullable(),
+  amount_krw: z.number().int().nonnegative().nullable(),
+});
+const PlainSupplementSchema = z.object({
+  type: z.enum(['personal_info_outsourcing', 'other']),
+});
+const SupplementInputSchema = z.discriminatedUnion('type', [
+  MouSupplementSchema,
+  PlainSupplementSchema,
+]);
+type MouSupplementInput = z.infer<typeof MouSupplementSchema>;
+type SupplementInput = z.infer<typeof SupplementInputSchema>;
+
 const BatchSchema = z.object({
   local_government_id: z.string().uuid(),
   contracting_party: z.enum(['monoplatform', 'imcity']),
   include_main: z.boolean(),
   existing_master_id: z.string().uuid().nullable(),
-  supplements: z.array(z.enum(SUPPLEMENT_TYPES)),
+  supplements: z.array(SupplementInputSchema),
   signed_date: z.string().nullable(),
   effective_date: z.string().nullable(),
   expiry_date: z.string().nullable(),
@@ -260,7 +283,8 @@ export async function createContractBatch(input: unknown): Promise<
       contracting_party: v.contracting_party,
       include_main: v.include_main,
       existing_master_id: v.existing_master_id,
-      supplements: v.supplements,
+      // 부속 중복 검사는 type 기준이므로 객체 → enum string 배열로 변환
+      supplements: v.supplements.map((s) => s.type),
     });
     if (dupes.length > 0) {
       return { duplicates: dupes };
@@ -413,8 +437,72 @@ export async function createContractBatch(input: unknown): Promise<
     created.push({ id: mainId, contract_type: 'parking_enforcement' });
   }
 
-  // 부속들 INSERT
-  for (const stype of v.supplements) {
+  // 부속들 INSERT — mou는 자체 일자·금액, 나머지는 메인 일자 상속
+  const today = new Date().toISOString().slice(0, 10);
+  for (const sup of v.supplements) {
+    const stype = sup.type;
+    const isMou = sup.type === 'mou';
+    const mouSup = isMou ? (sup as MouSupplementInput) : null;
+
+    // mou 부속은 자체 일자 가드 — 메인 가드와 동일 로직
+    if (mouSup) {
+      if (
+        mouSup.expiry_date &&
+        mouSup.effective_date &&
+        mouSup.expiry_date < mouSup.effective_date
+      ) {
+        return { error: '유지보수: 계약만료일은 시작일 이후여야 합니다.' };
+      }
+      if (mouSup.auto_renewal) {
+        if (!mouSup.auto_renewal_period_months || mouSup.auto_renewal_period_months < 1) {
+          return { error: '유지보수: 자동연장 주기(개월)를 1 이상으로 입력하세요.' };
+        }
+        if (
+          mouSup.auto_renewal_end_date &&
+          mouSup.expiry_date &&
+          mouSup.auto_renewal_end_date < mouSup.expiry_date
+        ) {
+          return { error: '유지보수: 자동연장 종료일은 계약만료일 이후여야 합니다.' };
+        }
+      }
+      if (mouSup.expiry_date && mouSup.expiry_date < today && !mouSup.auto_renewal) {
+        if (!mouSup.extended_expiry_date) {
+          return {
+            error:
+              '유지보수: 만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.',
+          };
+        }
+        if (mouSup.extended_expiry_date <= mouSup.expiry_date) {
+          return { error: '유지보수: 연장 후 만료일은 기존 만료일 이후여야 합니다.' };
+        }
+        if (mouSup.extended_expiry_date < today) {
+          return { error: '유지보수: 연장 후 만료일도 이미 지났습니다.' };
+        }
+      }
+      if (
+        mouSup.extended_expiry_date &&
+        mouSup.expiry_date &&
+        mouSup.extended_expiry_date <= mouSup.expiry_date
+      ) {
+        return { error: '유지보수: 연장 후 만료일은 기존 만료일 이후여야 합니다.' };
+      }
+    }
+
+    const supDates = mouSup
+      ? {
+          signed_date: mouSup.signed_date,
+          effective_date: mouSup.effective_date,
+          expiry_date: mouSup.expiry_date,
+          extended_expiry_date: mouSup.extended_expiry_date,
+          auto_renewal: mouSup.auto_renewal,
+          auto_renewal_period_months: mouSup.auto_renewal
+            ? mouSup.auto_renewal_period_months
+            : null,
+          auto_renewal_end_date: mouSup.auto_renewal ? mouSup.auto_renewal_end_date : null,
+        }
+      : datesSource;
+    const supAmount = mouSup ? mouSup.amount_krw : null;
+
     const ins = await supabase
       .from('contracts')
       .insert({
@@ -423,14 +511,15 @@ export async function createContractBatch(input: unknown): Promise<
         contract_type: stype,
         master_contract_id: mainId,
         status: 'in_progress',
-        signed_date: datesSource.signed_date,
-        effective_date: datesSource.effective_date,
-        expiry_date: datesSource.expiry_date,
-        extended_expiry_date: datesSource.extended_expiry_date,
+        signed_date: supDates.signed_date,
+        effective_date: supDates.effective_date,
+        expiry_date: supDates.expiry_date,
+        extended_expiry_date: supDates.extended_expiry_date,
         memo: v.memo,
-        auto_renewal: datesSource.auto_renewal,
-        auto_renewal_period_months: datesSource.auto_renewal_period_months,
-        auto_renewal_end_date: datesSource.auto_renewal_end_date,
+        auto_renewal: supDates.auto_renewal,
+        auto_renewal_period_months: supDates.auto_renewal_period_months,
+        auto_renewal_end_date: supDates.auto_renewal_end_date,
+        amount_krw: supAmount,
         created_by: me.id,
         updated_by: me.id,
       })
@@ -449,13 +538,13 @@ export async function createContractBatch(input: unknown): Promise<
       contracting_party: v.contracting_party,
       contract_type: stype,
       master_contract_id: mainId,
-      signed_date: datesSource.signed_date,
-      effective_date: datesSource.effective_date,
-      expiry_date: datesSource.expiry_date,
-      extended_expiry_date: datesSource.extended_expiry_date,
-      auto_renewal: datesSource.auto_renewal,
-      auto_renewal_period_months: datesSource.auto_renewal_period_months,
-      auto_renewal_end_date: datesSource.auto_renewal_end_date,
+      signed_date: supDates.signed_date,
+      effective_date: supDates.effective_date,
+      expiry_date: supDates.expiry_date,
+      extended_expiry_date: supDates.extended_expiry_date,
+      auto_renewal: supDates.auto_renewal,
+      auto_renewal_period_months: supDates.auto_renewal_period_months,
+      auto_renewal_end_date: supDates.auto_renewal_end_date,
     });
   }
 

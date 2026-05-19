@@ -232,6 +232,7 @@ export type Database = {
       }
       contracts: {
         Row: {
+          amount_krw: number | null
           auto_renewal: boolean
           auto_renewal_end_date: string | null
           auto_renewal_period_months: number | null
@@ -256,6 +257,7 @@ export type Database = {
           version: number
         }
         Insert: {
+          amount_krw?: number | null
           auto_renewal?: boolean
           auto_renewal_end_date?: string | null
           auto_renewal_period_months?: number | null
@@ -280,6 +282,7 @@ export type Database = {
           version?: number
         }
         Update: {
+          amount_krw?: number | null
           auto_renewal?: boolean
           auto_renewal_end_date?: string | null
           auto_renewal_period_months?: number | null

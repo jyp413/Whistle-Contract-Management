@@ -541,6 +541,8 @@ export async function updateContractMeta(input: {
   auto_renewal: boolean;
   auto_renewal_period_months: number | null;
   auto_renewal_end_date: string | null;
+  /** 계약금액(KRW). mou일 때만 의미가 있고, 다른 type은 NULL로 강제 클리어. */
+  amount_krw: number | null;
 }): Promise<Result<{ ok: true }>> {
   const me = await requireWriter();
   const supabase = await createClient();
@@ -548,7 +550,7 @@ export async function updateContractMeta(input: {
   const { data: cur, error: e1 } = await supabase
     .from('contracts')
     .select(
-      'id, version, signed_date, effective_date, expiry_date, extended_expiry_date, memo, contract_type, contracting_party, master_contract_id, local_government_id, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
+      'id, version, signed_date, effective_date, expiry_date, extended_expiry_date, memo, contract_type, contracting_party, master_contract_id, local_government_id, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw',
     )
     .eq('id', input.contractId)
     .is('deleted_at', null)
@@ -618,6 +620,16 @@ export async function updateContractMeta(input: {
     }
   }
 
+  // 계약금액: mou만 보존, 그 외 type은 NULL로 강제 클리어
+  // (type 변경으로 mou에서 빠져나갈 때 잔존 값 방지)
+  const finalAmountKrw = input.contract_type === 'mou' ? input.amount_krw : null;
+  if (
+    finalAmountKrw != null &&
+    (!Number.isInteger(finalAmountKrw) || finalAmountKrw < 0)
+  ) {
+    return { error: '계약금액은 0 이상의 정수여야 합니다.' };
+  }
+
   const { error: e2, count } = await supabase
     .from('contracts')
     .update(
@@ -633,6 +645,7 @@ export async function updateContractMeta(input: {
         auto_renewal: input.auto_renewal,
         auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
         auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
+        amount_krw: finalAmountKrw,
         version: cur.version + 1,
         updated_by: me.id,
       },
@@ -662,6 +675,7 @@ export async function updateContractMeta(input: {
       auto_renewal: cur.auto_renewal,
       auto_renewal_period_months: cur.auto_renewal_period_months,
       auto_renewal_end_date: cur.auto_renewal_end_date,
+      amount_krw: cur.amount_krw,
     },
     after_value: {
       signed_date: input.signed_date,
@@ -675,6 +689,7 @@ export async function updateContractMeta(input: {
       auto_renewal: input.auto_renewal,
       auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
       auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
+      amount_krw: finalAmountKrw,
     },
   });
   if (logErr) console.error('[updateContractMeta] activity_logs insert failed:', logErr);

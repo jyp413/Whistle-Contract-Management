@@ -45,6 +45,7 @@ export type SupplementInfo = {
   auto_renewal: boolean | null;
   auto_renewal_period_months: number | null;
   auto_renewal_end_date: string | null;
+  amount_krw: number | null;
   latest_file: {
     id: string;
     storage_path: string;
@@ -166,6 +167,11 @@ export default function SupplementCard({
             체결 {fmtDate(supplement.signed_date)} · 실효 만료{' '}
             {effectiveExpiryStr}
           </p>
+          {supplement.contract_type === 'mou' && supplement.amount_krw != null && (
+            <p className="text-xs text-teal-700 tabular-nums font-medium">
+              💰 {new Intl.NumberFormat('ko-KR').format(supplement.amount_krw)}원
+            </p>
+          )}
         </div>
         <Link
           href={`/contracts/${supplement.id}`}

@@ -57,6 +57,12 @@ export default async function AppLayout({
               >
                 미계약 현황
               </Link>
+              <Link
+                href="/maintenance"
+                className="px-3 py-1.5 rounded text-slate-700 hover:bg-slate-100"
+              >
+                유지보수
+              </Link>
               {user.role !== 'viewer' && (
                 <Link
                   href="/activity"

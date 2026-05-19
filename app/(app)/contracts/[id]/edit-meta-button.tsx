@@ -27,6 +27,7 @@ export default function EditMetaButton({
     auto_renewal: boolean;
     auto_renewal_period_months: number | null;
     auto_renewal_end_date: string | null;
+    amount_krw: number | null;
   };
   variant?: 'full' | 'icon';
   /** 메인 계약일 때 살아있는 부속 건수 — 일자 수정 시 stale 경고용. */

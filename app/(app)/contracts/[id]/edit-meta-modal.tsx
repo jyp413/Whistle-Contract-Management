@@ -7,6 +7,7 @@ import { listMasterContractsForLG } from '../new/actions';
 import { PARTY_LABEL, TYPE_LABEL, STATUS_LABEL } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
 import Modal from '@/app/components/modal';
+import AmountKrwInput from '@/app/components/amount-krw-input';
 
 type Party = Database['public']['Enums']['contracting_party'];
 type Ctype = Database['public']['Enums']['contract_type'];
@@ -41,6 +42,7 @@ export default function EditMetaModal({
     auto_renewal: boolean;
     auto_renewal_period_months: number | null;
     auto_renewal_end_date: string | null;
+    amount_krw: number | null;
   };
   /** 메인 계약일 때 살아있는 부속 건수. 일자 수정 시 stale 경고. */
   supplementCount?: number;
@@ -65,6 +67,7 @@ export default function EditMetaModal({
   const [autoRenewalEndDate, setAutoRenewalEndDate] = useState(
     contract.auto_renewal_end_date ?? '',
   );
+  const [amountKrw, setAmountKrw] = useState<number | null>(contract.amount_krw);
 
   const today = new Date().toISOString().slice(0, 10);
   const isSupplement = contractType !== 'parking_enforcement';
@@ -143,6 +146,7 @@ export default function EditMetaModal({
         auto_renewal: autoRenewal,
         auto_renewal_period_months: periodMonths,
         auto_renewal_end_date: autoRenewal ? (autoRenewalEndDate || null) : null,
+        amount_krw: contractType === 'mou' ? amountKrw : null,
       });
       if (result.error) {
         setError(result.error);
@@ -261,6 +265,20 @@ export default function EditMetaModal({
               <p className="text-[11px] text-slate-500 mt-1">
                 ⓘ 일반 연장은 상세 화면의 <b>[기간 연장]</b> 버튼을 사용하세요 (연장 이력이 함께 기록됩니다). 이 필드는 잘못 입력된 값을 정정할 때만 사용합니다.
               </p>
+            </div>
+          )}
+
+          {contractType === 'mou' && (
+            <div className="rounded border border-teal-200 bg-teal-50/50 p-3">
+              <label className="block text-xs font-medium text-teal-900 mb-1">
+                계약금액 (KRW)
+                <span className="text-slate-500 font-normal ml-1">유지보수 전용</span>
+              </label>
+              <AmountKrwInput
+                value={amountKrw}
+                onChange={setAmountKrw}
+                placeholder="예: 7,478,000"
+              />
             </div>
           )}
 

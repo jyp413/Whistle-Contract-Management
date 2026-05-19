@@ -31,6 +31,7 @@ export type ContractRow = {
   auto_renewal: boolean;
   auto_renewal_period_months: number | null;
   auto_renewal_end_date: string | null;
+  amount_krw: number | null;
   memo: string | null;
   version: number;
   updated_at: string;
@@ -315,6 +316,7 @@ export default function ContractsTable({
                           auto_renewal: c.auto_renewal,
                           auto_renewal_period_months: c.auto_renewal_period_months,
                           auto_renewal_end_date: c.auto_renewal_end_date,
+                          amount_krw: c.amount_krw,
                         }}
                       />
                     )}

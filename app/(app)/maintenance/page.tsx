@@ -1,13 +1,11 @@
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
-import ZipMenu from './zip-menu';
-import ContractsTable, { type SortKey } from './contracts-table';
+import MaintenanceTable, { type MouSortKey } from './maintenance-table';
 import {
   canWrite,
   effectiveExpiry,
   STATUS_LABEL,
-  TYPE_LABEL,
   PARTY_LABEL,
 } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
@@ -16,22 +14,12 @@ export const dynamic = 'force-dynamic';
 
 type Status = Database['public']['Enums']['contract_status'];
 type Party = Database['public']['Enums']['contracting_party'];
-type Ctype = Database['public']['Enums']['contract_type'];
 
-// 필터 라벨은 STATUS_LABEL/TYPE_LABEL/PARTY_LABEL 에서 도출 — 디테일 뱃지와 1:1 매칭 유지
 const STATUS_FILTERS: { key: Status | 'all'; label: string }[] = [
   { key: 'all', label: '전체' },
   ...(Object.entries(STATUS_LABEL) as [Status, string][]).map(([key, label]) => ({
     key,
     label,
-  })),
-];
-
-const TYPE_FILTERS: { key: Ctype | 'all'; label: string }[] = [
-  { key: 'all', label: '전체 유형' },
-  ...(Object.entries(TYPE_LABEL) as [Ctype, string][]).map(([key, label]) => ({
-    key,
-    label: key === 'parking_enforcement' ? `${label} (메인)` : label,
   })),
 ];
 
@@ -43,13 +31,13 @@ const PARTY_FILTERS: { key: Party | 'all'; label: string }[] = [
   })),
 ];
 
-const SORT_KEYS: ReadonlyArray<SortKey> = [
+const SORT_KEYS: ReadonlyArray<MouSortKey> = [
   'lg_name',
-  'type',
   'party',
   'status',
   'signed_date',
   'effective_expiry',
+  'amount_krw',
   'updated_at',
 ];
 
@@ -57,13 +45,12 @@ const PAGE_SIZES = [10, 20, 50, 100] as const;
 const DEFAULT_PAGE_SIZE = 10;
 const SERVER_FETCH_CAP = 500;
 
-export default async function ContractsListPage({
+export default async function MaintenanceListPage({
   searchParams,
 }: {
   searchParams: Promise<{
     status?: string;
     q?: string;
-    type?: string;
     party?: string;
     sort?: string;
     dir?: string;
@@ -74,11 +61,10 @@ export default async function ContractsListPage({
   const me = await requireUser();
   const sp = await searchParams;
   const status = (sp.status ?? 'all') as Status | 'all';
-  const type = (sp.type ?? 'all') as Ctype | 'all';
   const party = (sp.party ?? 'all') as Party | 'all';
   const q = (sp.q ?? '').trim();
-  const sort: SortKey = (SORT_KEYS as readonly string[]).includes(sp.sort ?? '')
-    ? (sp.sort as SortKey)
+  const sort: MouSortKey = (SORT_KEYS as readonly string[]).includes(sp.sort ?? '')
+    ? (sp.sort as MouSortKey)
     : 'lg_name';
   const dir: 'asc' | 'desc' = sp.dir === 'desc' ? 'desc' : 'asc';
   const sizeRaw = parseInt(sp.size ?? '', 10);
@@ -92,19 +78,15 @@ export default async function ContractsListPage({
   let query = supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, memo, version, contract_type, contracting_party, master_contract_id, local_government_id, updated_at, local_governments(full_name, sigungu)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, memo, version, contract_type, contracting_party, master_contract_id, local_government_id, updated_at, local_governments(full_name, sigungu, contact_department, contact_name, contact_phone, contact_email)',
     )
+    .eq('contract_type', 'mou')
     .is('deleted_at', null)
-    .order('local_government_id', { ascending: true })
-    .order('master_contract_id', { ascending: true, nullsFirst: true })
     .order('updated_at', { ascending: false })
     .limit(SERVER_FETCH_CAP);
 
   if (status !== 'all') {
     query = query.eq('status', status);
-  }
-  if (type !== 'all') {
-    query = query.eq('contract_type', type);
   }
   if (party !== 'all') {
     query = query.eq('contracting_party', party);
@@ -115,12 +97,19 @@ export default async function ContractsListPage({
   let filtered = contracts ?? [];
   if (q) {
     const needle = q.toLowerCase();
-    filtered = filtered.filter((c) =>
-      (c.local_governments?.full_name ?? '').toLowerCase().includes(needle),
-    );
+    filtered = filtered.filter((c) => {
+      const lg = c.local_governments;
+      return (
+        (lg?.full_name ?? '').toLowerCase().includes(needle) ||
+        (lg?.contact_department ?? '').toLowerCase().includes(needle) ||
+        (lg?.contact_name ?? '').toLowerCase().includes(needle) ||
+        (lg?.contact_phone ?? '').toLowerCase().includes(needle) ||
+        (lg?.contact_email ?? '').toLowerCase().includes(needle) ||
+        (c.memo ?? '').toLowerCase().includes(needle)
+      );
+    });
   }
 
-  // 클라이언트 측 정렬 (Server Component이지만 응답 받은 후 정렬)
   const sortBy = (a: typeof filtered[number], b: typeof filtered[number]): number => {
     let av: string | number | null = null;
     let bv: string | number | null = null;
@@ -128,10 +117,6 @@ export default async function ContractsListPage({
       case 'lg_name':
         av = a.local_governments?.full_name ?? '';
         bv = b.local_governments?.full_name ?? '';
-        break;
-      case 'type':
-        av = a.contract_type;
-        bv = b.contract_type;
         break;
       case 'party':
         av = a.contracting_party;
@@ -149,6 +134,10 @@ export default async function ContractsListPage({
         av = effectiveExpiry(a) ?? '';
         bv = effectiveExpiry(b) ?? '';
         break;
+      case 'amount_krw':
+        av = a.amount_krw ?? -1;
+        bv = b.amount_krw ?? -1;
+        break;
       case 'updated_at':
         av = a.updated_at;
         bv = b.updated_at;
@@ -160,49 +149,18 @@ export default async function ContractsListPage({
   };
   filtered = [...filtered].sort(sortBy);
 
-  // 페이지네이션 — 그루핑 모드(sort=lg_name)에서는 메인 단위로 페이지를 자르고
-  // 페이지에 들어간 메인의 부속들은 같은 페이지에 함께 포함시킨다 (페이지 경계로 분리되지 않게).
-  const groupByLg = sort === 'lg_name';
-  let totalEntries: number;
-  let paged: typeof filtered;
-
-  if (groupByLg) {
-    const mains = filtered.filter((c) => !c.master_contract_id);
-    const suppsByMain = new Map<string, typeof filtered>();
-    for (const c of filtered) {
-      if (!c.master_contract_id) continue;
-      const arr = suppsByMain.get(c.master_contract_id) ?? [];
-      arr.push(c);
-      suppsByMain.set(c.master_contract_id, arr);
-    }
-    totalEntries = mains.length;
-    const totalPagesCalc = Math.max(1, Math.ceil(totalEntries / size));
-    const page = Math.min(Math.max(1, requestedPage), totalPagesCalc);
-    const start = (page - 1) * size;
-    const pageMains = mains.slice(start, start + size);
-    paged = [];
-    for (const m of pageMains) {
-      paged.push(m);
-      paged.push(...(suppsByMain.get(m.id) ?? []));
-    }
-  } else {
-    totalEntries = filtered.length;
-    const totalPagesCalc = Math.max(1, Math.ceil(totalEntries / size));
-    const page = Math.min(Math.max(1, requestedPage), totalPagesCalc);
-    const start = (page - 1) * size;
-    paged = filtered.slice(start, start + size);
-  }
+  const totalEntries = filtered.length;
+  const totalPagesCalc = Math.max(1, Math.ceil(totalEntries / size));
+  const page = Math.min(Math.max(1, requestedPage), totalPagesCalc);
+  const start = (page - 1) * size;
+  const paged = filtered.slice(start, start + size);
 
   const totalPages = Math.max(1, Math.ceil(totalEntries / size));
   const currentPage = Math.min(Math.max(1, requestedPage), totalPages);
   const fetchCapped = (contracts?.length ?? 0) >= SERVER_FETCH_CAP;
 
-  // 파일 매핑 — 현재 페이지에 표시될 행만 조회
   const visibleIds = paged.map((c) => c.id);
-  const fileMap: Record<
-    string,
-    { id: string; original_filename: string }
-  > = {};
+  const fileMap: Record<string, { id: string; original_filename: string }> = {};
   if (visibleIds.length > 0) {
     const { data: files } = await supabase
       .from('contract_files')
@@ -217,38 +175,12 @@ export default async function ContractsListPage({
       };
     }
   }
-
-  // 메인 행에 "유지보수 보유" 보조 배지 표시용 — 현재 페이지의 메인 ID 들에 대해
-  // 살아있는(status!=terminated) 유지보수(mou) 부속이 있는지 별도 조회.
-  // 사용자가 type/status 필터를 걸어도 이 표시는 독립적으로 정확해야 하므로 별도 쿼리.
-  const visibleMainIds = paged
-    .filter((c) => !c.master_contract_id)
-    .map((c) => c.id);
-  const maintenanceMainIds: string[] = [];
-  if (visibleMainIds.length > 0) {
-    const { data: mouSupps } = await supabase
-      .from('contracts')
-      .select('master_contract_id')
-      .in('master_contract_id', visibleMainIds)
-      .eq('contract_type', 'mou')
-      .neq('status', 'terminated')
-      .is('deleted_at', null);
-    const seen = new Set<string>();
-    for (const r of mouSupps ?? []) {
-      if (r.master_contract_id && !seen.has(r.master_contract_id)) {
-        seen.add(r.master_contract_id);
-        maintenanceMainIds.push(r.master_contract_id);
-      }
-    }
-  }
   const userCanDownload = canWrite(me.role);
   const userCanEdit = canWrite(me.role);
 
-  // 필터/정렬 변경 시 page 는 1 로 reset (querystring 에서 제외). size 는 사용자 선호로 유지.
   const baseParams = (overrides: Record<string, string>) => {
     const params: Record<string, string> = {};
     if (status !== 'all') params.status = status;
-    if (type !== 'all') params.type = type;
     if (party !== 'all') params.party = party;
     if (q) params.q = q;
     if (sort !== 'lg_name') params.sort = sort;
@@ -261,52 +193,50 @@ export default async function ContractsListPage({
     return new URLSearchParams(params).toString();
   };
 
-  // 페이지 네비게이션 — 필터/정렬/사이즈 유지, page 만 변경
   const pageHref = (p: number) => {
     const params = new URLSearchParams(baseParams({}));
     if (p > 1) params.set('page', String(p));
     const qs = params.toString();
-    return qs ? `/contracts?${qs}` : '/contracts';
+    return qs ? `/maintenance?${qs}` : '/maintenance';
   };
 
-  // 페이지 사이즈 변경 — page=1 로 reset
   const sizeHref = (s: number) => {
     const params = new URLSearchParams(baseParams({}));
     params.delete('size');
     if (s !== DEFAULT_PAGE_SIZE) params.set('size', String(s));
     const qs = params.toString();
-    return qs ? `/contracts?${qs}` : '/contracts';
+    return qs ? `/maintenance?${qs}` : '/maintenance';
   };
 
-  const sortLink = (key: SortKey): string => {
+  const sortLink = (key: MouSortKey): string => {
     const nextDir = sort === key && dir === 'asc' ? 'desc' : 'asc';
-    return `/contracts?${baseParams({ sort: key, dir: nextDir })}`;
+    return `/maintenance?${baseParams({ sort: key, dir: nextDir })}`;
   };
 
-  const sortArrow = (key: SortKey): string => {
+  const sortArrow = (key: MouSortKey): string => {
     if (sort !== key) return '';
     return dir === 'asc' ? ' ▲' : ' ▼';
   };
 
   const sortLinks = {
     lg_name: sortLink('lg_name'),
-    type: sortLink('type'),
     party: sortLink('party'),
     status: sortLink('status'),
     signed_date: sortLink('signed_date'),
     effective_expiry: sortLink('effective_expiry'),
+    amount_krw: sortLink('amount_krw'),
     updated_at: sortLink('updated_at'),
-  } satisfies Record<SortKey, string>;
+  } satisfies Record<MouSortKey, string>;
 
   const sortArrows = {
     lg_name: sortArrow('lg_name'),
-    type: sortArrow('type'),
     party: sortArrow('party'),
     status: sortArrow('status'),
     signed_date: sortArrow('signed_date'),
     effective_expiry: sortArrow('effective_expiry'),
+    amount_krw: sortArrow('amount_krw'),
     updated_at: sortArrow('updated_at'),
-  } satisfies Record<SortKey, string>;
+  } satisfies Record<MouSortKey, string>;
 
   return (
     <div className="space-y-4">
@@ -317,24 +247,20 @@ export default async function ContractsListPage({
         <span aria-hidden>←</span> 대시보드
       </Link>
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-xl font-bold text-slate-900">계약 목록</h1>
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">유지보수 계약</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
+            계약등록 메뉴에서 유지보수 부속을 체크해 등록할 수 있습니다. 계약금액·일자는 메인과 독립.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
           {canWrite(me.role) && (
-            <>
-              <a
-                href={`/api/export/contracts.xlsx?${baseParams({})}`}
-                className="text-sm font-medium px-3 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
-              >
-                엑셀 내보내기
-              </a>
-              <ZipMenu status={status} type={type} party={party} q={q} />
-              <Link
-                href="/contracts/new"
-                className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded"
-              >
-                + 신규 계약 등록
-              </Link>
-            </>
+            <a
+              href={`/api/export/maintenance.xlsx?${baseParams({})}`}
+              className="text-sm font-medium px-3 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+            >
+              📥 엑셀 내보내기
+            </a>
           )}
         </div>
       </div>
@@ -345,25 +271,9 @@ export default async function ContractsListPage({
           {STATUS_FILTERS.map((f) => (
             <Link
               key={f.key}
-              href={`/contracts?${baseParams({ status: f.key })}`}
+              href={`/maintenance?${baseParams({ status: f.key })}`}
               className={`text-xs px-3 py-1.5 rounded border ${
                 status === f.key
-                  ? 'bg-slate-900 border-slate-900 text-white'
-                  : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              {f.label}
-            </Link>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-1">
-          <span className="text-xs text-slate-500 self-center pr-1">유형</span>
-          {TYPE_FILTERS.map((f) => (
-            <Link
-              key={f.key}
-              href={`/contracts?${baseParams({ type: f.key })}`}
-              className={`text-xs px-3 py-1.5 rounded border ${
-                type === f.key
                   ? 'bg-slate-900 border-slate-900 text-white'
                   : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
               }`}
@@ -377,7 +287,7 @@ export default async function ContractsListPage({
           {PARTY_FILTERS.map((f) => (
             <Link
               key={f.key}
-              href={`/contracts?${baseParams({ party: f.key })}`}
+              href={`/maintenance?${baseParams({ party: f.key })}`}
               className={`text-xs px-3 py-1.5 rounded border ${
                 party === f.key
                   ? 'bg-slate-900 border-slate-900 text-white'
@@ -394,11 +304,10 @@ export default async function ContractsListPage({
               type="text"
               name="q"
               defaultValue={q}
-              placeholder="지자체명 검색"
+              placeholder="지자체명·담당자·부서·연락처·메모 검색"
               className="w-full px-3 py-1.5 border border-slate-300 rounded text-sm"
             />
             {status !== 'all' && <input type="hidden" name="status" value={status} />}
-            {type !== 'all' && <input type="hidden" name="type" value={type} />}
             {party !== 'all' && <input type="hidden" name="party" value={party} />}
           </div>
           <button
@@ -416,13 +325,11 @@ export default async function ContractsListPage({
         </p>
       )}
 
-      <ContractsTable
+      <MaintenanceTable
         rows={paged}
         fileMap={fileMap}
-        maintenanceMainIds={maintenanceMainIds}
         userCanDownload={userCanDownload}
         userCanEdit={userCanEdit}
-        groupByLg={groupByLg}
         sortLinks={sortLinks}
         sortArrows={sortArrows}
       />
@@ -433,12 +340,11 @@ export default async function ContractsListPage({
         </p>
       )}
 
-      {/* 페이지네이션 — 1건 이상이면 항상 표시 */}
       {totalEntries > 0 && (
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex items-center gap-2">
             <span className="text-slate-500">
-              {groupByLg ? '메인' : '전체'} {totalEntries}건 ·{' '}
+              전체 {totalEntries}건 ·{' '}
               <b className="text-slate-700 tabular-nums">{currentPage}</b> / {totalPages} 페이지
             </span>
           </div>

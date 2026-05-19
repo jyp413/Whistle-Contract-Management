@@ -42,7 +42,7 @@ export default async function ContractDetailPage({
   const { data: contract, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification, contact_department, contact_name, contact_phone, contact_email)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification, contact_department, contact_name, contact_phone, contact_email)',
     )
     .eq('id', id)
     .is('deleted_at', null)
@@ -89,7 +89,7 @@ export default async function ContractDetailPage({
       ? supabase
           .from('contracts')
           .select(
-            'id, status, version, contract_type, signed_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
+            'id, status, version, contract_type, signed_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw',
           )
           .eq('master_contract_id', id)
           .is('deleted_at', null)
@@ -132,6 +132,7 @@ export default async function ContractDetailPage({
         auto_renewal: s.auto_renewal,
         auto_renewal_period_months: s.auto_renewal_period_months,
         auto_renewal_end_date: s.auto_renewal_end_date,
+        amount_krw: s.amount_krw,
         latest_file: fileByContract.get(s.id) ?? null,
       });
     }
@@ -210,6 +211,7 @@ export default async function ContractDetailPage({
                 auto_renewal: contract.auto_renewal,
                 auto_renewal_period_months: contract.auto_renewal_period_months,
                 auto_renewal_end_date: contract.auto_renewal_end_date,
+                amount_krw: contract.amount_krw,
               }}
             />
           )}
@@ -273,6 +275,17 @@ export default async function ContractDetailPage({
                 {fmtDate(effectiveExpiry(contract))}
               </span>
             </Row>
+            {contract.contract_type === 'mou' && (
+              <Row label="계약금액 (KRW)">
+                {contract.amount_krw != null ? (
+                  <span className="font-semibold tabular-nums">
+                    {new Intl.NumberFormat('ko-KR').format(contract.amount_krw)}원
+                  </span>
+                ) : (
+                  <span className="text-slate-400">-</span>
+                )}
+              </Row>
+            )}
             <Row label="버전 (낙관락)">v{contract.version}</Row>
             {contract.termination_reason && (
               <Row label="종료 사유" full>

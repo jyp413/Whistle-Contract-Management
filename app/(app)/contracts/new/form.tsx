@@ -15,6 +15,7 @@ import { registerUploadedFile } from '../[id]/actions';
 import SuccessModal from '@/app/components/success-modal';
 import Modal from '@/app/components/modal';
 import LgCombobox, { type LgOption } from '@/app/components/lg-combobox';
+import AmountKrwInput from '@/app/components/amount-krw-input';
 import { PARTY_LABEL, TYPE_LABEL, STATUS_LABEL, fmtDate } from '@/lib/utils';
 import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 import type { Database } from '@/lib/types/database';
@@ -97,6 +98,16 @@ export default function NewContractForm({
   const [autoRenewalMonths, setAutoRenewalMonths] = useState('12');
   const [autoRenewalEndDate, setAutoRenewalEndDate] = useState('');
   const [memo, setMemo] = useState('');
+
+  // 유지보수(mou) 부속 전용 — 메인과 다른 일자·금액 보유
+  const [mouSignedDate, setMouSignedDate] = useState('');
+  const [mouEffectiveDate, setMouEffectiveDate] = useState('');
+  const [mouExpiryDate, setMouExpiryDate] = useState('');
+  const [mouExtendedExpiryDate, setMouExtendedExpiryDate] = useState('');
+  const [mouAutoRenewal, setMouAutoRenewal] = useState(false);
+  const [mouAutoRenewalMonths, setMouAutoRenewalMonths] = useState('12');
+  const [mouAutoRenewalEndDate, setMouAutoRenewalEndDate] = useState('');
+  const [mouAmountKrw, setMouAmountKrw] = useState<number | null>(null);
 
   const today = new Date().toISOString().slice(0, 10);
   const expiryIsPast = !!expiryDate && expiryDate < today;
@@ -226,14 +237,64 @@ export default function NewContractForm({
       }
     }
 
+    // 유지보수(mou) 부속 선택 시 자체 일자·금액 클라이언트 가드
+    if (supChecks.mou) {
+      if (
+        mouExpiryDate &&
+        mouEffectiveDate &&
+        mouExpiryDate < mouEffectiveDate
+      )
+        return setError('유지보수: 계약만료일은 시작일 이후여야 합니다.');
+      const mouPeriodMonths = mouAutoRenewal ? parseInt(mouAutoRenewalMonths, 10) : null;
+      if (mouAutoRenewal && (!mouPeriodMonths || mouPeriodMonths < 1))
+        return setError('유지보수: 자동연장 주기(개월)를 1 이상으로 입력하세요.');
+      if (
+        mouAutoRenewal &&
+        mouAutoRenewalEndDate &&
+        mouExpiryDate &&
+        mouAutoRenewalEndDate < mouExpiryDate
+      )
+        return setError('유지보수: 자동연장 종료일은 계약만료일 이후여야 합니다.');
+      const mouExpiryPast = !!mouExpiryDate && mouExpiryDate < today;
+      if (mouExpiryPast && !mouAutoRenewal && !mouExtendedExpiryDate)
+        return setError(
+          '유지보수: 만료일이 이미 지난 계약입니다. 연장 후 만료일을 입력하거나 자동연장을 설정하세요.',
+        );
+      if (
+        mouExtendedExpiryDate &&
+        mouExpiryDate &&
+        mouExtendedExpiryDate <= mouExpiryDate
+      )
+        return setError('유지보수: 연장 후 만료일은 기존 만료일 이후여야 합니다.');
+    }
+
     startTransition(async () => {
       const periodMonths = autoRenewal ? parseInt(autoRenewalMonths, 10) : null;
+      const supplementsPayload = selectedSupplements.map((t) => {
+        if (t === 'mou') {
+          return {
+            type: 'mou' as const,
+            signed_date: mouSignedDate || null,
+            effective_date: mouEffectiveDate || null,
+            expiry_date: mouExpiryDate || null,
+            extended_expiry_date: mouExtendedExpiryDate || null,
+            auto_renewal: mouAutoRenewal,
+            auto_renewal_period_months: mouAutoRenewal
+              ? parseInt(mouAutoRenewalMonths, 10)
+              : null,
+            auto_renewal_end_date:
+              mouAutoRenewal && mouAutoRenewalEndDate ? mouAutoRenewalEndDate : null,
+            amount_krw: mouAmountKrw,
+          };
+        }
+        return { type: t };
+      });
       const result = await createContractBatch({
         local_government_id: lgId,
         contracting_party: contractingParty,
         include_main: includeMain,
         existing_master_id: supplementOnly ? existingMasterId : null,
-        supplements: selectedSupplements,
+        supplements: supplementsPayload,
         signed_date: includeMain ? signedDate || null : null,
         effective_date: includeMain ? effectiveDate || null : null,
         expiry_date: includeMain ? expiryDate || null : null,
@@ -578,6 +639,109 @@ export default function NewContractForm({
             />
           ))}
         </div>
+
+        {/* 유지보수(mou) 부속 — 메인과 다른 일자·금액 입력 */}
+        {supChecks.mou && (
+          <div className="bg-teal-50/50 border border-teal-200 rounded-md p-4 space-y-3">
+            <p className="text-xs font-medium text-teal-900">
+              🛠 유지보수 계약 상세
+              <span className="text-slate-500 font-normal ml-1">
+                (메인과 다른 일자·금액을 입력합니다)
+              </span>
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  유지보수 계약체결일
+                </label>
+                <input
+                  type="date"
+                  value={mouSignedDate}
+                  onChange={(e) => setMouSignedDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  계약시작일
+                </label>
+                <input
+                  type="date"
+                  value={mouEffectiveDate}
+                  onChange={(e) => setMouEffectiveDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  계약만료일
+                </label>
+                <input
+                  type="date"
+                  value={mouExpiryDate}
+                  onChange={(e) => setMouExpiryDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">
+                  연장 후 만료일
+                </label>
+                <input
+                  type="date"
+                  value={mouExtendedExpiryDate}
+                  onChange={(e) => setMouExtendedExpiryDate(e.target.value)}
+                  min={mouExpiryDate || undefined}
+                  className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={mouAutoRenewal}
+                  onChange={(e) => setMouAutoRenewal(e.target.checked)}
+                />
+                자동연장
+              </label>
+              {mouAutoRenewal && (
+                <>
+                  <div className="flex items-center gap-1 text-xs text-slate-700">
+                    <span>주기</span>
+                    <input
+                      type="number"
+                      min={1}
+                      value={mouAutoRenewalMonths}
+                      onChange={(e) => setMouAutoRenewalMonths(e.target.value)}
+                      className="w-16 px-2 py-1 border border-slate-300 rounded text-sm tabular-nums"
+                    />
+                    <span>개월</span>
+                  </div>
+                  <div className="flex items-center gap-1 text-xs text-slate-700">
+                    <span>최대</span>
+                    <input
+                      type="date"
+                      value={mouAutoRenewalEndDate}
+                      onChange={(e) => setMouAutoRenewalEndDate(e.target.value)}
+                      className="px-2 py-1 border border-slate-300 rounded text-sm tabular-nums"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">
+                계약금액 (KRW)
+              </label>
+              <AmountKrwInput
+                value={mouAmountKrw}
+                onChange={setMouAmountKrw}
+                placeholder="예: 7,478,000"
+              />
+            </div>
+          </div>
+        )}
 
         <div>
           <label className="block text-xs font-medium text-slate-700 mb-1">
