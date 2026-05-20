@@ -256,7 +256,7 @@ Do not re-add the per-LG contact-info badges or a "+ 신규 등록" inline butto
 
 `/maintenance` lists all mou contracts ([page.tsx](app/(app)/maintenance/page.tsx)). Read-mostly — no separate registration form; users register mou via the standard `/contracts/new` flow with the **유지보수** supplement checkbox checked, which reveals a sub-section for independent dates + 자동연장 + 계약금액 (see invariant #6). The list is a flat table (no main/supplement grouping — every row is a mou supplement).
 
-**연도별 계약현황**이 페이지 핵심 컨셉. 상단에 `effective_date` 연도 기준 요약 카드(연도별 건수 + 총 용역료 합계, 최신 연도부터 정렬) + "전체" 카드 + 연도 chip 필터를 겸함(클릭 = 그 연도로 필터). 카드는 *전체 데이터* 기반, 표는 *연도 필터 적용*. mou는 단일 주체(모노플랫폼) + 갱신 chain 으로 status가 거의 'completed' 또는 'updating' 둘 중 하나라 status/party 필터 칩은 없음 (invariant #8). 필터는 연도 + q(지자체명·담당부서·담당자·전화·이메일·메모 column-wise ilike — `.or()` 금지, CLAUDE.md 보안 경고).
+**연도별 계약현황**이 페이지 핵심 컨셉. 검색 폼 영역에 **`signed_date`(체결일) 연도 드랍다운** + 선택 연도 요약 inline 표시(`{N}년 체결: X건 · 총 Y원`). 드랍다운 옵션은 `signed_date.slice(0,4)` 로 집계한 distinct 연도 + "전체". 표는 선택 연도로 필터. mou는 단일 주체(모노플랫폼) + 갱신 chain 으로 status가 거의 'completed' 또는 'updating' 둘 중 하나라 status/party 필터 칩은 없음 (invariant #8). 필터는 연도 + q(지자체명·담당부서·담당자·전화·이메일·메모 column-wise ilike — `.or()` 금지, CLAUDE.md 보안 경고).
 
 컬럼: No / 지자체 / 담당부서·담당자 / 연락처(전화·이메일) / 상태 / 계약체결일 / 실효 만료일 / **계약금액(KRW)** / 최종 수정 / 동작(미리보기·수정). 주체 컬럼 없음. PDF preview reuses [RowPreview](app/(app)/contracts/row-preview.tsx); LG 담당자 info is read from `local_governments.contact_*` (shared across the LG's contracts). Excel export at `/api/export/maintenance.xlsx` — separate ExcelJS route with `excel_export_maintenance` audit type (writer-only), 같은 연도+q 필터 적용. Pagination identical to `/contracts`. Row click → standard `/contracts/{id}` detail page (no separate detail).
 

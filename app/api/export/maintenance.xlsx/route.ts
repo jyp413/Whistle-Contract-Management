@@ -34,9 +34,9 @@ export async function GET(request: NextRequest) {
 
   let rows = contracts ?? [];
 
-  // 연도 필터 (effective_date 기준)
+  // 연도 필터 (signed_date 체결일 기준 — UI와 동기화)
   if (yearParam && yearParam !== 'all' && /^\d{4}$/.test(yearParam)) {
-    rows = rows.filter((c) => c.effective_date?.startsWith(yearParam));
+    rows = rows.filter((c) => c.signed_date?.startsWith(yearParam));
   }
 
   if (q) {

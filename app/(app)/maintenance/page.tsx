@@ -62,26 +62,30 @@ export default async function MaintenanceListPage({
 
   const allMou = contracts ?? [];
 
-  // 연도별 요약 — effective_date의 연도 기준 (전체 데이터 기반, 연도 필터와 무관)
+  // 연도별 요약 — signed_date(체결일) 연도 기준
   const yearSummaryMap = new Map<string, { count: number; totalAmount: number }>();
   for (const c of allMou) {
-    if (!c.effective_date) continue;
-    const y = c.effective_date.slice(0, 4);
+    if (!c.signed_date) continue;
+    const y = c.signed_date.slice(0, 4);
     const entry = yearSummaryMap.get(y) ?? { count: 0, totalAmount: 0 };
     entry.count += 1;
     if (c.amount_krw != null) entry.totalAmount += c.amount_krw;
     yearSummaryMap.set(y, entry);
   }
-  const yearSummary = Array.from(yearSummaryMap.entries())
-    .sort(([a], [b]) => (a < b ? 1 : -1)) // 최신 연도가 먼저
-    .map(([year, v]) => ({ year, ...v }));
+  const availableYears = Array.from(yearSummaryMap.keys()).sort((a, b) => (a < b ? 1 : -1));
 
-  const availableYears = yearSummary.map((y) => y.year); // 최신부터
+  // 선택 연도의 요약 (드랍다운 옆 inline 표시용)
+  const selectedYearSummary =
+    yearParam !== 'all' ? yearSummaryMap.get(yearParam) ?? null : null;
+  const allSummary = {
+    count: allMou.length,
+    totalAmount: allMou.reduce((sum, c) => sum + (c.amount_krw ?? 0), 0),
+  };
 
-  // 연도 필터 적용
+  // 연도 필터 적용 (signed_date 기준)
   let filtered = allMou;
   if (yearParam !== 'all') {
-    filtered = filtered.filter((c) => c.effective_date?.startsWith(yearParam));
+    filtered = filtered.filter((c) => c.signed_date?.startsWith(yearParam));
   }
 
   // 검색 필터 — column-wise ilike (보안: .or() DSL 금지)
@@ -250,68 +254,42 @@ export default async function MaintenanceListPage({
         </div>
       </div>
 
-      {/* 연도별 요약 카드 — 데이터 없으면 placeholder 로 영역 노출 (기능 발견성 ↑) */}
-      <div className="bg-white rounded-lg border border-slate-200 p-4">
-        <p className="text-xs font-medium text-slate-500 mb-2">연도별 계약현황 (계약시작일 기준)</p>
-        {yearSummary.length === 0 ? (
-          <p className="text-sm text-slate-400 py-3 text-center">
-            아직 등록된 유지보수 계약이 없습니다.
-            <br />
-            <Link href="/contracts/new" className="text-indigo-600 hover:underline">
-              계약 등록
-            </Link>{' '}
-            메뉴에서 <b>유지보수</b> 부속을 체크해 등록하면 연도별 자료가 여기에 표시됩니다.
-          </p>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-            {yearSummary.map((y) => {
-              const isActive = yearParam === y.year;
-              return (
-                <Link
-                  key={y.year}
-                  href={`/maintenance?${baseParams({ year: y.year })}`}
-                  className={`rounded border px-3 py-2 transition ${
-                    isActive
-                      ? 'border-teal-500 bg-teal-50'
-                      : 'border-slate-200 bg-slate-50 hover:bg-slate-100'
-                  }`}
-                >
-                  <p className={`text-sm font-bold ${isActive ? 'text-teal-900' : 'text-slate-900'}`}>
-                    {y.year}년
-                  </p>
-                  <p className="text-xs text-slate-600 mt-0.5">
-                    <b className="tabular-nums">{y.count}건</b>
-                    {y.totalAmount > 0 && (
-                      <>
-                        {' · '}
-                        <b className="tabular-nums">{fmtKrw(y.totalAmount)}원</b>
-                      </>
-                    )}
-                  </p>
-                </Link>
-              );
-            })}
-            {availableYears.length > 0 && (
-              <Link
-                href="/maintenance"
-                className={`rounded border px-3 py-2 transition flex flex-col justify-center ${
-                  yearParam === 'all'
-                    ? 'border-slate-700 bg-slate-100'
-                    : 'border-slate-200 bg-white hover:bg-slate-50'
-                }`}
-              >
-                <p className={`text-sm font-bold ${yearParam === 'all' ? 'text-slate-900' : 'text-slate-700'}`}>
-                  전체
-                </p>
-                <p className="text-xs text-slate-500 mt-0.5 tabular-nums">{allMou.length}건</p>
-              </Link>
+      {/* 연도 드랍다운 + 선택 연도 요약 + 검색 */}
+      <form className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-xs font-medium text-slate-700">체결 연도</label>
+          <select
+            name="year"
+            defaultValue={yearParam}
+            className="px-3 py-1.5 border border-slate-300 rounded text-sm bg-white tabular-nums"
+          >
+            <option value="all">전체</option>
+            {availableYears.map((y) => (
+              <option key={y} value={y}>{y}년</option>
+            ))}
+          </select>
+          {/* 선택 연도의 요약 — inline 표시 */}
+          <div className="text-xs text-slate-600 tabular-nums">
+            {yearParam !== 'all' && selectedYearSummary ? (
+              <>
+                <b className="text-slate-900">{yearParam}년 체결</b>:{' '}
+                <b>{selectedYearSummary.count}건</b>
+                {selectedYearSummary.totalAmount > 0 && (
+                  <> · 총 <b>{fmtKrw(selectedYearSummary.totalAmount)}원</b></>
+                )}
+              </>
+            ) : yearParam !== 'all' ? (
+              <span className="text-slate-400">{yearParam}년 체결: 0건</span>
+            ) : (
+              <>
+                <b className="text-slate-900">전체</b>: <b>{allSummary.count}건</b>
+                {allSummary.totalAmount > 0 && (
+                  <> · 총 <b>{fmtKrw(allSummary.totalAmount)}원</b></>
+                )}
+              </>
             )}
           </div>
-        )}
-      </div>
-
-      {/* 검색 폼 */}
-      <form className="bg-white rounded-lg border border-slate-200 p-4">
+        </div>
         <div className="flex gap-2 items-end">
           <div className="flex-1 min-w-[200px]">
             <input
@@ -321,15 +299,23 @@ export default async function MaintenanceListPage({
               placeholder="지자체명·담당부서·담당자·연락처·메모 검색"
               className="w-full px-3 py-1.5 border border-slate-300 rounded text-sm"
             />
-            {yearParam !== 'all' && <input type="hidden" name="year" value={yearParam} />}
           </div>
           <button
             type="submit"
             className="text-sm px-4 py-1.5 border border-slate-300 bg-white hover:bg-slate-50 rounded"
           >
-            검색
+            적용
           </button>
         </div>
+        {allMou.length === 0 && (
+          <p className="text-xs text-slate-400 pt-2">
+            아직 등록된 유지보수 계약이 없습니다.{' '}
+            <Link href="/contracts/new" className="text-indigo-600 hover:underline">
+              계약 등록
+            </Link>{' '}
+            메뉴에서 <b>유지보수</b> 부속을 체크해 등록하세요.
+          </p>
+        )}
       </form>
 
       {error && (
