@@ -52,7 +52,7 @@ export type MouFile = {
 export type MouSortKey =
   | 'lg_name'
   | 'status'
-  | 'signed_date'
+  | 'effective_date'
   | 'effective_expiry'
   | 'amount_krw'
   | 'updated_at';
@@ -91,8 +91,8 @@ export default function MaintenanceTable({
               </Link>
             </th>
             <th className="text-left px-4 py-2 font-medium">
-              <Link href={sortLinks.signed_date} className="hover:text-slate-900">
-                체결일{sortArrows.signed_date}
+              <Link href={sortLinks.effective_date} className="hover:text-slate-900">
+                계약시작일{sortArrows.effective_date}
               </Link>
             </th>
             <th className="text-left px-4 py-2 font-medium">
@@ -110,7 +110,7 @@ export default function MaintenanceTable({
                 최종 수정{sortArrows.updated_at}
               </Link>
             </th>
-            <th className="text-right px-4 py-2 font-medium">동작</th>
+            <th className="text-right px-4 py-2 font-medium">수정</th>
           </tr>
         </thead>
         <tbody>
@@ -152,7 +152,7 @@ export default function MaintenanceTable({
                 <td className="px-4 py-2">
                   <StatusBadge status={c.status} />
                 </td>
-                <td className="px-4 py-2 tabular-nums">{fmtDate(c.signed_date)}</td>
+                <td className="px-4 py-2 tabular-nums">{fmtDate(c.effective_date)}</td>
                 <td className="px-4 py-2 tabular-nums">
                   <div className="flex items-center gap-1.5">
                     <span>{fmtDate(effectiveExpiry(c))}</span>

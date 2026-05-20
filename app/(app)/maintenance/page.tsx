@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const SORT_KEYS: ReadonlyArray<MouSortKey> = [
   'lg_name',
   'status',
-  'signed_date',
+  'effective_date',
   'effective_expiry',
   'amount_krw',
   'updated_at',
@@ -120,9 +120,9 @@ export default async function MaintenanceListPage({
         av = a.status;
         bv = b.status;
         break;
-      case 'signed_date':
-        av = a.signed_date ?? '';
-        bv = b.signed_date ?? '';
+      case 'effective_date':
+        av = a.effective_date ?? '';
+        bv = b.effective_date ?? '';
         break;
       case 'effective_expiry':
         av = effectiveExpiry(a) ?? '';
@@ -214,7 +214,7 @@ export default async function MaintenanceListPage({
   const sortLinks = {
     lg_name: sortLink('lg_name'),
     status: sortLink('status'),
-    signed_date: sortLink('signed_date'),
+    effective_date: sortLink('effective_date'),
     effective_expiry: sortLink('effective_expiry'),
     amount_krw: sortLink('amount_krw'),
     updated_at: sortLink('updated_at'),
@@ -223,7 +223,7 @@ export default async function MaintenanceListPage({
   const sortArrows = {
     lg_name: sortArrow('lg_name'),
     status: sortArrow('status'),
-    signed_date: sortArrow('signed_date'),
+    effective_date: sortArrow('effective_date'),
     effective_expiry: sortArrow('effective_expiry'),
     amount_krw: sortArrow('amount_krw'),
     updated_at: sortArrow('updated_at'),
