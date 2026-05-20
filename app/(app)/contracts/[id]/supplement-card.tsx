@@ -73,6 +73,9 @@ export default function SupplementCard({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [completing, startCompleteTransition] = useTransition();
   const [completeError, setCompleteError] = useState<string | null>(null);
+  // 갱신 부속 완료 시 원계약 만료 전이면 겹침 경고
+  const [overlapWarn, setOverlapWarn] = useState<{ parentExpiry: string } | null>(null);
+  const [overlapAck, setOverlapAck] = useState(false);
 
   const canConfirmComplete =
     supplement.status === 'in_progress' || supplement.status === 'updating';
@@ -136,18 +139,30 @@ export default function SupplementCard({
     }
   }
 
-  function doConfirmCompletion() {
+  function closeConfirm() {
+    setConfirmOpen(false);
+    setCompleteError(null);
+    setOverlapWarn(null);
+    setOverlapAck(false);
+  }
+
+  function doConfirmCompletion(force = false) {
     setCompleteError(null);
     startCompleteTransition(async () => {
       const r = await confirmCompletion({
         contractId: supplement.id,
         expectedVersion: supplement.version,
+        force,
       });
+      if (r.overlapWarning) {
+        setOverlapWarn(r.overlapWarning);
+        return;
+      }
       if (r.error) {
         setCompleteError(r.error);
         return;
       }
-      setConfirmOpen(false);
+      closeConfirm();
       router.refresh();
     });
   }
@@ -267,7 +282,7 @@ export default function SupplementCard({
 
       {confirmOpen && (
         <Modal
-          onClose={() => !completing && setConfirmOpen(false)}
+          onClose={() => !completing && closeConfirm()}
           maxWidth="sm"
           closeOnBackdrop={!completing}
           ariaLabel="부속 계약 상태 변경"
@@ -281,6 +296,27 @@ export default function SupplementCard({
             <br />
             계약 상태를 <b>「계약완료」</b>로 변경하시겠습니까?
           </p>
+          {overlapWarn && (
+            <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 space-y-2">
+              <p className="text-xs text-amber-800 font-medium">
+                ⚠ 이 갱신 계약의 원계약이 아직 만료 전입니다 (만료일{' '}
+                <b className="tabular-nums">{fmtDate(overlapWarn.parentExpiry)}</b>).
+              </p>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                지금 완료 처리하면 「계약완료」 계약이 겹칩니다. 보통은 원계약 만료 후에
+                완료 처리합니다.
+              </p>
+              <label className="flex items-start gap-2 text-xs text-amber-900 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={overlapAck}
+                  onChange={(e) => setOverlapAck(e.target.checked)}
+                  className="mt-0.5 rounded border-amber-400"
+                />
+                <span>겹침을 인지했으며 그래도 지금 완료 처리합니다.</span>
+              </label>
+            </div>
+          )}
           {completeError && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
               {completeError}
@@ -289,7 +325,7 @@ export default function SupplementCard({
           <div className="mt-5 flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setConfirmOpen(false)}
+              onClick={closeConfirm}
               disabled={completing}
               className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
             >
@@ -297,11 +333,15 @@ export default function SupplementCard({
             </button>
             <button
               type="button"
-              onClick={doConfirmCompletion}
-              disabled={completing}
+              onClick={() => doConfirmCompletion(overlapWarn ? true : false)}
+              disabled={completing || (!!overlapWarn && !overlapAck)}
               className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
             >
-              {completing ? '처리 중…' : '확인 — 계약완료로 변경'}
+              {completing
+                ? '처리 중…'
+                : overlapWarn
+                  ? '그래도 계약완료로 변경'
+                  : '확인 — 계약완료로 변경'}
             </button>
           </div>
         </Modal>

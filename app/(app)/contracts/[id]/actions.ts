@@ -105,13 +105,23 @@ export async function registerUploadedFile(input: {
 export async function confirmCompletion(input: {
   contractId: string;
   expectedVersion: number;
-}): Promise<Result<{ ok: true }>> {
+  /** 겹침 경고 모달에서 "그래도 완료" 클릭 시 true 로 재호출 */
+  force?: boolean;
+}): Promise<
+  | { ok: true; error?: undefined; overlapWarning?: undefined }
+  | { error: string; ok?: undefined; overlapWarning?: undefined }
+  | {
+      overlapWarning: { parentExpiry: string };
+      ok?: undefined;
+      error?: undefined;
+    }
+> {
   const me = await requireWriter();
   const supabase = await createClient();
 
   const { data: cur, error: e1 } = await supabase
     .from('contracts')
-    .select('id, status, version')
+    .select('id, status, version, parent_contract_id')
     .eq('id', input.contractId)
     .is('deleted_at', null)
     .single();
@@ -122,6 +132,27 @@ export async function confirmCompletion(input: {
   }
   if (cur.version !== input.expectedVersion) {
     return { error: '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 시도하세요.' };
+  }
+
+  // 겹침 가드 — 갱신 계약(parent_contract_id 보유)을 완료 처리할 때, 부모(원계약)가
+  // 아직 'completed' + 만료 전이면 같은 계약 chain에 활성 계약 2건이 겹친다.
+  // force=false 면 경고 반환 → 클라이언트가 동의 후 force=true 로 재호출.
+  if (!input.force && cur.parent_contract_id) {
+    const { data: parent } = await supabase
+      .from('contracts')
+      .select(
+        'id, status, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date',
+      )
+      .eq('id', cur.parent_contract_id)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (parent && parent.status === 'completed') {
+      const parentExpiry = effectiveExpiry(parent);
+      const today = new Date().toISOString().slice(0, 10);
+      if (parentExpiry && parentExpiry >= today) {
+        return { overlapWarning: { parentExpiry } };
+      }
+    }
   }
 
   const fromStatus = cur.status;

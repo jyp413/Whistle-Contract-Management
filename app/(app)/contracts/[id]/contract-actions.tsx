@@ -76,21 +76,36 @@ export default function ContractActions({
   >(null);
   const [completing, startCompleteTransition] = useTransition();
   const [completeError, setCompleteError] = useState<string | null>(null);
+  // 갱신 계약 완료 시 원계약이 만료 전이면 겹침 경고 — 동의 후 force 재호출
+  const [overlapWarn, setOverlapWarn] = useState<{ parentExpiry: string } | null>(null);
+  const [overlapAck, setOverlapAck] = useState(false);
 
   if (userRole === 'viewer') return null;
 
-  function doConfirmCompletion() {
+  function closeComplete() {
+    setOpen(null);
+    setCompleteError(null);
+    setOverlapWarn(null);
+    setOverlapAck(false);
+  }
+
+  function doConfirmCompletion(force = false) {
     setCompleteError(null);
     startCompleteTransition(async () => {
       const r = await confirmCompletion({
         contractId,
         expectedVersion: version,
+        force,
       });
+      if (r.overlapWarning) {
+        setOverlapWarn(r.overlapWarning);
+        return;
+      }
       if (r.error) {
         setCompleteError(r.error);
         return;
       }
-      setOpen(null);
+      closeComplete();
       router.refresh();
     });
   }
@@ -199,7 +214,7 @@ export default function ContractActions({
       {open === 'complete' && (
         <Modal
           title="계약 완료로 변경"
-          onClose={() => !completing && setOpen(null)}
+          onClose={() => !completing && closeComplete()}
         >
           <p className="text-sm text-slate-700">
             현재 상태(<b>{STATUS_LABEL[status]}</b>) 에서{' '}
@@ -207,6 +222,27 @@ export default function ContractActions({
             <br />
             계속 진행할까요?
           </p>
+          {overlapWarn && (
+            <div className="mt-3 rounded border border-amber-300 bg-amber-50 p-3 space-y-2">
+              <p className="text-xs text-amber-800 font-medium">
+                ⚠ 이 갱신 계약의 원계약이 아직 만료 전입니다 (만료일{' '}
+                <b className="tabular-nums">{fmtDate(overlapWarn.parentExpiry)}</b>).
+              </p>
+              <p className="text-xs text-amber-700 leading-relaxed">
+                지금 완료 처리하면 같은 지자체에 <b>「계약완료」 계약 2건이 겹칩니다</b>.
+                보통은 원계약 만료(자동 종료) 후에 완료 처리하는 게 KPI·통계가 깔끔합니다.
+              </p>
+              <label className="flex items-start gap-2 text-xs text-amber-900 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={overlapAck}
+                  onChange={(e) => setOverlapAck(e.target.checked)}
+                  className="mt-0.5 rounded border-amber-400"
+                />
+                <span>겹침을 인지했으며 그래도 지금 완료 처리합니다.</span>
+              </label>
+            </div>
+          )}
           {completeError && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-3">
               {completeError}
@@ -215,7 +251,7 @@ export default function ContractActions({
           <div className="mt-5 flex justify-end gap-2">
             <button
               type="button"
-              onClick={() => setOpen(null)}
+              onClick={closeComplete}
               disabled={completing}
               className="text-sm px-4 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
             >
@@ -223,11 +259,15 @@ export default function ContractActions({
             </button>
             <button
               type="button"
-              onClick={doConfirmCompletion}
-              disabled={completing}
+              onClick={() => doConfirmCompletion(overlapWarn ? true : false)}
+              disabled={completing || (!!overlapWarn && !overlapAck)}
               className="text-sm px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded font-medium"
             >
-              {completing ? '처리 중…' : '확인 — 계약완료로 변경'}
+              {completing
+                ? '처리 중…'
+                : overlapWarn
+                  ? '그래도 계약완료로 변경'
+                  : '확인 — 계약완료로 변경'}
             </button>
           </div>
         </Modal>
