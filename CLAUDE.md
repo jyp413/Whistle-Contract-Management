@@ -59,10 +59,14 @@ This is a **계약 건 (contract) 단위 상태 관리 시스템**. Key invarian
 
    Two **mirrored** implementations: `effectiveExpiry()` in [lib/utils.ts](lib/utils.ts) (JS — used by every page/server action that touches dates) and SQL function `public.contract_effective_expiry(...)` (used by `get_kpi_summary` and `terminate_expired_contracts`). **If you change the algorithm, change both.** Never inline `COALESCE(extended_expiry_date, expiry_date)` anywhere — it silently breaks auto-renewing contracts.
 
+   `autoRenewalHistory()` in [lib/utils.ts](lib/utils.ts) mirrors the same roll-forward loop to derive the *list* of already-elapsed auto-renewal cycles. The contract detail 연장 이력 panel merges these **computed** rows (not stored in `contract_extensions`) with the real manual-extension rows. If you change the roll-forward algorithm, change this third place too.
+
    **Entry-time guard:** `createContractBatch` / `createContractAction` ([app/(app)/contracts/new/actions.ts](app/(app)/contracts/new/actions.ts)) and `updateContractMeta` ([app/(app)/contracts/[id]/actions.ts](app/(app)/contracts/[id]/actions.ts)) reject `expiry_date < today` **unless** `extended_expiry_date` is also provided and itself `≥ today` **or** `auto_renewal=true` (auto-renewal rolls expiry forward automatically). When the form ships `extended_expiry_date` at creation, the action also writes a `contract_extensions` row with `reason='초기 등록 시 입력된 연장 정보'` so history stays consistent with later `extendContract` activity.
 3. **Main vs supplement (`master_contract_id`).** `contract_type='parking_enforcement'` is the **main** contract type and must have `master_contract_id IS NULL`. Other types (`personal_info_outsourcing`, `mou`, `other`) are **supplements** that must point to a main contract in the *same LG* via `master_contract_id`. Enforced by trigger `trg_validate_master_link` ([validate_master_contract_link()](.) function — BEFORE INSERT/UPDATE). Don't reuse `parent_contract_id` (which tracks renewal chains) for this — they are orthogonal concepts.
 4. **Main termination cascades to supplements.** Trigger `trg_cascade_terminate` (SECURITY DEFINER) — when a main contract transitions to `terminated`, all of its alive supplements are auto-terminated with `termination_reason='메인 계약 종료에 따른 자동 종료'`, plus matching `contract_status_history` (`trigger_event='cascade_terminate'`) and `activity_logs` (`event_type='cascade_terminate'`) rows. UI should warn before terminating a main with supplements.
 5. **`get_region_stats` AND `get_kpi_summary` count main contracts only** (`master_contract_id IS NULL`). Supplements don't inflate the dashboard map, region stats, KPI cards, or the expiring-buckets. If you change the count semantics, update **both** RPCs together. (Historical bug: `get_kpi_summary` originally lacked the filter and inflated the "계약완료" KPI by counting attached `personal_info_outsourcing` / `mou` / `other` supplements — fixed in migration `get_kpi_summary_mains_only`.)
+
+   `get_kpi_summary` also returns `completed_lg` (DISTINCT `local_government_id` with a `completed` main) and `total_lg` (total `local_governments` count). The dashboard 계약완료 KPI card reads these as a **계약 보급률** — "전국 N개 지자체 중 X곳 계약완료" — instead of the near-useless completed/active ratio (added in migration `get_kpi_summary_add_lg_coverage`). The 체결중·갱신중 cards show a raw count only (no denominator/%).
 6. **Supplements inherit dates from their main — `personal_info_outsourcing` / `other` only.** `createContractBatch` ([new/actions.ts](app/(app)/contracts/new/actions.ts)) copies `signed_date / effective_date / expiry_date / extended_expiry_date / auto_renewal*` from the main into these two supplement types at INSERT time. **`mou` (유지보수) is the exception** — mou supplements carry their own dates + auto-renewal + `amount_krw` because real-world 유지보수 용역 계약서 has independent terms from the parking enforcement contract. The supplements payload uses `z.discriminatedUnion('type', ...)` — mou variant requires the full date/amount payload, the other two variants only carry `type`. Cascade-terminate still applies to all supplement types; no cascade for date *updates* on the main (UI shows stale warning).
 7. **`contracts.amount_krw` is mou-only.** `bigint`, NULL allowed, `CHECK (amount_krw IS NULL OR amount_krw >= 0)`. Other contract types are always NULL. `updateContractMeta` enforces this — when `contract_type !== 'mou'` it sets `amount_krw = NULL` regardless of input (prevents stale values after type change). Displayed in: `/maintenance` list, `/api/export/maintenance.xlsx`, `/contracts/[id]` detail dl (mou-only row), and `<SupplementCard>` on the main detail page.
 8. **mou는 모노플랫폼 직접 단일 주체.** DB CHECK `(contract_type <> 'mou' OR contracting_party = 'monoplatform')` 강제. `createContractBatch` 의 mou 부속 INSERT, `updateContractMeta` 의 mou type 전환 모두 `contracting_party='monoplatform'` 으로 덮어쓴다 — 폼에서 imcity가 보내져도 무시. `/maintenance` 리스트·엑셀에서 주체 컬럼은 제거 (정보량 없음).
@@ -104,6 +108,8 @@ Effective access:
 - `master` — full
 - `accounting` — read all + write contracts/files/history/extensions; owns reads on activity_logs
 - `viewer` — read contracts/files/lg only; cannot download (enforced at app layer); preview is allowed (PRD §6)
+
+**User management** (`/users`, master-only): role change / activate / soft-delete. `deleteUser` ([app/(app)/users/actions.ts](app/(app)/users/actions.ts)) sets `deleted_at` + `is_active=false` (uses the `{ count: 'exact' }` soft-delete pattern). Cannot delete self → guarantees ≥1 master always remains. `requireUser()` already bounces `deleted_at` users to `/login`. The `/users` list filters `deleted_at IS NULL` so 탈퇴 users disappear from the table (they still appear in `users.xlsx` with a 상태 column). The page has a client-side email/표시명 search box.
 
 ### Mutation pattern
 
@@ -175,7 +181,11 @@ Data flow:
 
 If the color formula changes, swap there. The legacy single-color `colorClass(rate)` is kept for non-map callers but unused by the map itself.
 
-**제주·울릉 inset transform** (nation view only): polygon code prefix `50*` (제주) and `37320` (울릉) get rendered inside an SVG `<g transform="translate(...) scale(...)">` so the mainland fitExtent can ignore them — 본토가 더 크게 보임. 좌표는 `size` 비율 기반(좌하단 = 제주, 우상단 = 울릉). sido/si view에서는 inset 비활성.
+**제주 inset transform** (nation view only): the 제주 시도 polygon (code `39`) is excluded from the mainland `fitExtent` so 본토가 더 크게 보이고, then rendered inside an SVG `<g transform="translate(...) scale(...)">` at a **우하단** inset wrapped in a white `<rect>` callout box. Helpers: `isOffshore` / `offshoreTarget` / `offshoreTransform` / `offshoreBox` in `region-map.tsx`. **울릉도는 inset 처리하지 않는다** — 별도 광역단체가 아니라 경상북도 울릉군이므로, 경북 폴리곤의 일부로 자연 위치에 그대로 둔다 (전국 뷰에선 경북 동쪽의 작은 점). 경북 sido 드릴다운에서 울릉군(시군구 code `37430`)은 일반 leaf로 렌더되며, 작은 폴리곤 라벨 생략 규칙(`w < 28`)에서 예외 처리해 다른 시군구처럼 지명을 표시한다. (과거 offshore 코드가 제주를 `50*`, 울릉을 `37320`으로 찾았으나 둘 다 잘못된 코드라 동작하지 않았음 — `37320`은 의성군.)
+
+**경기도 라벨 보정**: `NATION_LABEL_OFFSET` (region-map.tsx) 가 nation view 에서 경기도(`31`) 라벨을 아래로 내린다 — 경기도 centroid가 서울을 감싸는 형태라 보정 없이는 서울 라벨과 겹친다.
+
+**레이아웃**: 지도 + 우측 요약패널은 `grid lg:grid-cols-[minmax(0,700px)_320px] lg:justify-center` — 지도는 최대 700px, 두 칼럼이 묶여 가운데 정렬돼 사이에 어색한 빈 공간이 없다.
 
 **TopoJSON manual property patches** (do NOT regenerate from raw kostat without re-applying):
 - polygon `22320` `군위군` — original kostat code was `37310` (경상북도). 2023-07 transferred to 대구; we move the polygon into the `22` (대구) prefix so 대구 sido drill-down includes 군위군. DB `geo_code` matches `22320`.
@@ -210,7 +220,10 @@ The seed file reflects the patched codes. If you re-run mapshaper on raw kostat 
 - **Renewal overlap guard on `confirmCompletion`.** When completing a contract that has a `parent_contract_id` (i.e. a 갱신 계약), the action checks the parent: if the parent is still `completed` and its `effectiveExpiry()` is `≥ today`, it returns `{ overlapWarning: { parentExpiry } }` instead of completing (unless `force: true`). 권장 워크플로우는 갱신 계약을 `갱신중`으로 두었다가 원계약 만료(자동 종료) 후 완료 처리 — 그래야 `계약완료` 2건이 겹쳐 KPI가 일시적으로 부풀려지지 않음. 완료 팝업(`ContractActions`, `SupplementCard`)은 경고 + "동의" 체크박스를 띄우고 동의 시 `force: true` 로 재호출 — 강제 차단이 아니라 예외 상황(조기 가동) 허용.
 - **Filter labels are derived from `STATUS_LABEL` / `TYPE_LABEL` / `PARTY_LABEL`** maps, not hardcoded — `Object.entries(LABEL_MAP)` in [contracts/page.tsx](app/(app)/contracts/page.tsx). Hardcoding (e.g. filter chip "모노플랫폼" vs detail badge "모노플랫폼 직접") creates two names for the same value that drift over time.
 - **Tables wrap with `overflow-x-auto` + `min-w-[N]`** (not `overflow-hidden`) — the contracts/expiring/activity/users tables otherwise clip columns on mobile.
-- **List pagination convention** (currently only `/contracts`): querystring `page` (default 1) + `size` ∈ `{10, 20, 50, 100}` (default 10). Server fetches with `.limit(SERVER_FETCH_CAP=500)` and shows an amber warning when the cap is hit. Client-side slice for the visible page. **Grouping-aware**: when `sort=lg_name`, page by main rows and include each main's supplements on the same page (so a main and its 부속 never split across pages). When sorted by anything else, flat pagination. Filter/sort changes reset `page` to 1; `size` is preserved across navigation. Only the visible page's contract IDs are passed to the `contract_files` fetch — keep that scope minimal.
+- **List pagination convention** (`/contracts`, `/maintenance`, `/activity`): querystring `page` (default 1) + `size` ∈ `{10, 20, 50, 100}`. Two flavours:
+  - **`/contracts` & `/maintenance`** — `size` default 10, server fetches with `.limit(SERVER_FETCH_CAP=500)` and shows an amber warning when the cap is hit, then **client-side slice** for the visible page. `/contracts` is **grouping-aware**: when `sort=lg_name`, page by main rows and include each main's supplements on the same page (a main and its 부속 never split across pages); other sorts flat. Only the visible page's contract IDs go to the `contract_files` fetch.
+  - **`/activity`** — `size` default 20, **server-side `.range()` + `{ count: 'exact' }`** (the audit log grows unbounded, so a 500-cap client-slice would make old rows unreachable). No fetch cap.
+  - Filter/sort changes reset `page` to 1; `size` is preserved across navigation.
 
 ### Contract contact info & dashboard search
 
@@ -226,12 +239,15 @@ Uses `SUPABASE_SERVICE_ROLE_KEY` to act as the first available master user. `ver
 
 ### Export routes
 
-Four endpoints under `app/api/export/`. All `requireWriter()` (viewer cannot export), all log to `activity_logs` with `event_type='zip_download'` + `after_value.type` discriminator for filtering, all `export const runtime = 'nodejs'`.
+Seven endpoints under `app/api/export/`. Excel routes are `requireWriter()` except `users.xlsx` which is `requireMaster()` (the /users page is master-only); the ZIP route is `requireWriter()`. All log to `activity_logs` with `event_type='zip_download'` + an `after_value.type` discriminator (`excel_export` / `excel_export_maintenance` / `excel_export_activity` / `excel_export_users` / ...) for filtering, all `export const runtime = 'nodejs'`.
 
 **Excel (`exceljs`)** — header row navy `FF1F3864` + white bold text, columns sized for Korean labels:
 - `contracts.xlsx?status=&type=&party=&q=` — full contract list with filters
 - `expiring.xlsx?window=30|60|90` — `/expiring` data; client uses `effectiveExpiry()` + `daysUntil()` in JS, server fetches `status='completed'` rows with `.limit(1000)` then enriches/filters
 - `uncontracted.xlsx?cls=si|gun|gu` — `/uncontracted` data; calls `get_region_stats` RPC, filters live mains = 0, sorts by sido → classification → name. Includes a second "요약" sheet with totals + 계약률.
+- `maintenance.xlsx?year=&q=` — `/maintenance` (mou) list; same year + q filter as the page.
+- `activity.xlsx?event=` — `/activity` log; respects the event-type filter, capped at 5000 rows (audit log grows unbounded).
+- `users.xlsx` — full user list incl. 탈퇴(soft-deleted) rows with a 상태 column; `requireMaster()`.
 
 **ZIP** (`contracts.zip`) — N-file PDF archive. Pattern:
 - `export const maxDuration = 300; const MAX_FILES_PER_ZIP = 500;` — slice and note truncation in `_manifest.txt`
