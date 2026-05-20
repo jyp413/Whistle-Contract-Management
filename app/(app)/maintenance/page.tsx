@@ -250,10 +250,19 @@ export default async function MaintenanceListPage({
         </div>
       </div>
 
-      {/* 연도별 요약 카드 */}
-      {yearSummary.length > 0 && (
-        <div className="bg-white rounded-lg border border-slate-200 p-4">
-          <p className="text-xs font-medium text-slate-500 mb-2">연도별 계약현황 (계약시작일 기준)</p>
+      {/* 연도별 요약 카드 — 데이터 없으면 placeholder 로 영역 노출 (기능 발견성 ↑) */}
+      <div className="bg-white rounded-lg border border-slate-200 p-4">
+        <p className="text-xs font-medium text-slate-500 mb-2">연도별 계약현황 (계약시작일 기준)</p>
+        {yearSummary.length === 0 ? (
+          <p className="text-sm text-slate-400 py-3 text-center">
+            아직 등록된 유지보수 계약이 없습니다.
+            <br />
+            <Link href="/contracts/new" className="text-indigo-600 hover:underline">
+              계약 등록
+            </Link>{' '}
+            메뉴에서 <b>유지보수</b> 부속을 체크해 등록하면 연도별 자료가 여기에 표시됩니다.
+          </p>
+        ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
             {yearSummary.map((y) => {
               const isActive = yearParam === y.year;
@@ -298,8 +307,8 @@ export default async function MaintenanceListPage({
               </Link>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* 검색 폼 */}
       <form className="bg-white rounded-lg border border-slate-200 p-4">
