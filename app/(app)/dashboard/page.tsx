@@ -100,14 +100,14 @@ export default async function DashboardPage({
         <KpiCard
           title={STATUS_LABEL.in_progress}
           value={kpi.in_progress_count}
-          total={kpi.total_active}
+          valueUnit="건"
           tone="orange"
           href="/contracts?status=in_progress"
         />
         <KpiCard
           title={STATUS_LABEL.updating}
           value={kpi.updating_count}
-          total={kpi.total_active}
+          valueUnit="건"
           tone="blue"
           href="/contracts?status=updating"
         />
@@ -209,14 +209,16 @@ function KpiCard({
   value,
   total,
   totalUnit,
+  valueUnit,
   caption,
   tone,
   href,
 }: {
   title: string;
   value: number;
-  total: number;
+  total?: number;
   totalUnit?: string;
+  valueUnit?: string;
   caption?: string;
   tone: 'green' | 'orange' | 'blue';
   href: string;
@@ -226,7 +228,11 @@ function KpiCard({
     orange: 'border-l-orange-500',
     blue: 'border-l-blue-500',
   }[tone];
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  // total이 주어진 카드만 비율 표시 — 체결중/갱신중은 건수만 (분모·% 무의미)
+  const pct =
+    total !== undefined && total > 0
+      ? Math.round((value / total) * 100)
+      : null;
 
   return (
     <Link
@@ -238,10 +244,16 @@ function KpiCard({
         <span className="text-3xl font-bold text-slate-900 tabular-nums">
           {value}
         </span>
-        <span className="text-sm text-slate-500 mb-1 tabular-nums">
-          / {total}
-          {totalUnit} ({pct}%)
-        </span>
+        {total !== undefined ? (
+          <span className="text-sm text-slate-500 mb-1 tabular-nums">
+            / {total}
+            {totalUnit} ({pct}%)
+          </span>
+        ) : (
+          valueUnit && (
+            <span className="text-sm text-slate-500 mb-1">{valueUnit}</span>
+          )
+        )}
       </div>
       <p className="text-[11px] text-slate-400 mt-2">
         {caption ?? '클릭하여 리스트 보기 →'}
