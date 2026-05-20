@@ -212,7 +212,7 @@ export function RegionMap({ stats }: Props) {
   );
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
+    <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,700px)_320px] lg:justify-center gap-5">
       <div>
         <RegionBreadcrumb
           view={view}
@@ -223,7 +223,7 @@ export function RegionMap({ stats }: Props) {
         />
         <div
           ref={containerRef}
-          className="mt-3 relative bg-slate-50 rounded-md overflow-hidden max-w-[640px]"
+          className="mt-3 relative bg-slate-50 rounded-md overflow-hidden"
         >
           {!topo && (
             <div className="aspect-[5/6] flex items-center justify-center text-sm text-slate-400">
