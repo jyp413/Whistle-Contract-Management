@@ -9,6 +9,7 @@ import {
   canWrite,
   effectiveExpiry,
   formatAutoRenewalPeriod,
+  autoRenewalHistory,
 } from '@/lib/utils';
 import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 import UploadCard from './upload-card';
@@ -144,6 +145,38 @@ export default async function ContractDetailPage({
   const aliveSupplementCount = supplementInfos.filter(
     (s) => s.status !== 'terminated',
   ).length;
+
+  // 연장 이력 = 실제 수동 연장 기록 + 계산된 자동연장 주기를 만료일 기준 병합
+  const autoRows = autoRenewalHistory(contract);
+  type ExtRow =
+    | {
+        kind: 'manual';
+        id: string;
+        previousExpiry: string | null;
+        newExpiry: string | null;
+        reason: string | null;
+        at: string;
+      }
+    | { kind: 'auto'; previousExpiry: string; newExpiry: string };
+  const extensionRows: ExtRow[] = [
+    ...(extensions ?? []).map(
+      (e): ExtRow => ({
+        kind: 'manual',
+        id: e.id,
+        previousExpiry: e.previous_expiry_date,
+        newExpiry: e.new_expiry_date,
+        reason: e.reason,
+        at: e.extended_at,
+      }),
+    ),
+    ...autoRows.map(
+      (r): ExtRow => ({
+        kind: 'auto',
+        previousExpiry: r.previousExpiry,
+        newExpiry: r.newExpiry,
+      }),
+    ),
+  ].sort((a, b) => (b.newExpiry ?? '').localeCompare(a.newExpiry ?? ''));
 
   return (
     <div className="space-y-5">
@@ -473,24 +506,61 @@ export default async function ContractDetailPage({
           <div className="px-5 py-3 border-b border-slate-100">
             <h2 className="text-sm font-semibold text-slate-900">연장 이력</h2>
           </div>
-          {(extensions?.length ?? 0) === 0 ? (
+          {autoRows.length > 0 && (
+            <p className="px-5 py-2 text-xs text-orange-800 bg-orange-50 border-b border-orange-100">
+              🔄 자동연장 {autoRows.length}회 경과 · 다음 갱신{' '}
+              <b className="tabular-nums">
+                {fmtDate(effectiveExpiry(contract))}
+              </b>
+            </p>
+          )}
+          {extensionRows.length === 0 ? (
             <p className="px-5 py-8 text-center text-sm text-slate-400">
               연장 이력이 없습니다.
             </p>
           ) : (
             <ul className="divide-y divide-slate-100">
-              {extensions!.map((e) => (
-                <li key={e.id} className="px-5 py-3 text-sm">
-                  <p className="text-slate-900 tabular-nums">
-                    {fmtDate(e.previous_expiry_date)} →{' '}
-                    <b>{fmtDate(e.new_expiry_date)}</b>
+              {extensionRows.map((e) => (
+                <li
+                  key={e.kind === 'manual' ? e.id : `auto-${e.previousExpiry}`}
+                  className={`px-5 py-3 text-sm ${
+                    e.kind === 'auto' ? 'bg-orange-50/60' : ''
+                  }`}
+                >
+                  <span
+                    className={`inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded ${
+                      e.kind === 'auto'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {e.kind === 'auto' ? '🔄 자동연장(계산)' : '✏️ 수동 연장'}
+                  </span>
+                  <p className="text-slate-900 tabular-nums mt-1.5">
+                    {fmtDate(e.previousExpiry)} → <b>{fmtDate(e.newExpiry)}</b>
                   </p>
-                  {e.reason && (
-                    <p className="text-xs text-slate-500 mt-1">{e.reason}</p>
+                  {e.kind === 'auto' ? (
+                    <p className="text-xs text-slate-500 mt-1">
+                      자동연장 조건
+                      {formatAutoRenewalPeriod(
+                        contract.auto_renewal_period_months,
+                      ) &&
+                        ` (${formatAutoRenewalPeriod(
+                          contract.auto_renewal_period_months,
+                        )} 주기)`}
+                    </p>
+                  ) : (
+                    <>
+                      {e.reason && (
+                        <p className="text-xs text-slate-500 mt-1">
+                          {e.reason}
+                        </p>
+                      )}
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        {fmtDateTime(e.at)}
+                      </p>
+                    </>
                   )}
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    {fmtDateTime(e.extended_at)}
-                  </p>
                 </li>
               ))}
             </ul>

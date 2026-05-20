@@ -110,6 +110,47 @@ export function addMonths(dateStr: string, months: number): string {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
 }
 
+/**
+ * 자동연장 계약에서 이미 지나간 자동연장 주기들을 계산하여 반환.
+ * effectiveExpiry()의 롤포워드 루프와 동일한 규칙 — DB에 저장되지 않는 계산값.
+ * extended_expiry_date가 설정되면 자동연장 계산이 멈추므로 빈 배열 (invariant #2).
+ * auto_renewal_end_date cap을 넘기는 주기는 발생하지 않으므로 제외.
+ */
+export function autoRenewalHistory(c: {
+  expiry_date: string | null;
+  extended_expiry_date: string | null;
+  auto_renewal?: boolean | null;
+  auto_renewal_period_months?: number | null;
+  auto_renewal_end_date?: string | null;
+}): { previousExpiry: string; newExpiry: string }[] {
+  if (c.extended_expiry_date) return [];
+  if (!c.auto_renewal || !c.auto_renewal_period_months || !c.expiry_date) {
+    return [];
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const [y, m, d] = c.expiry_date.split('-').map(Number);
+  const cur = new Date(y, m - 1, d);
+  let end: Date | null = null;
+  if (c.auto_renewal_end_date) {
+    const [ey, em, ed] = c.auto_renewal_end_date.split('-').map(Number);
+    end = new Date(ey, em - 1, ed);
+  }
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const fmt = (dt: Date) =>
+    `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+  const out: { previousExpiry: string; newExpiry: string }[] = [];
+  let i = 0;
+  while (cur < today && i < 240) {
+    const prev = fmt(cur);
+    cur.setMonth(cur.getMonth() + c.auto_renewal_period_months);
+    if (end && cur > end) break;
+    out.push({ previousExpiry: prev, newExpiry: fmt(cur) });
+    i++;
+  }
+  return out;
+}
+
 export function formatAutoRenewalPeriod(
   months: number | null | undefined,
 ): string {
