@@ -6,6 +6,7 @@ import {
   effectiveExpiry,
   fmtDate,
   canWrite,
+  formatAutoRenewalPeriod,
 } from '@/lib/utils';
 import { StatusBadge, TypeBadge, PartyBadge } from '@/app/components/badges';
 
@@ -53,6 +54,12 @@ export default async function ExpiringPage({
           c.days <= validWindow,
       )
       .sort((a, b) => (a.days ?? 0) - (b.days ?? 0));
+
+  // 자동연장 계약 중 종료일 cap 에 안 걸린 것 = 실제 종료 위험 없음 (다음 주기로 굴러감).
+  // effectiveExpiry()는 cap 도달 시 auto_renewal_end_date 를 그대로 반환하므로 일치 비교로 감지.
+  const isSafeRenewal = (c: (typeof enriched)[number]): boolean =>
+    c.auto_renewal &&
+    !(c.auto_renewal_end_date != null && c.expiry === c.auto_renewal_end_date);
 
   return (
     <div className="space-y-4">
@@ -106,6 +113,8 @@ export default async function ExpiringPage({
           );
           const mains = items.filter((c) => !c.master_contract_id).length;
           const supps = items.length - mains;
+          const safe = items.filter(isSafeRenewal).length;
+          const actionNeeded = items.length - safe;
           const toneCard = {
             red: 'border-l-red-500',
             amber: 'border-l-amber-500',
@@ -122,6 +131,13 @@ export default async function ExpiringPage({
               </p>
               <p className="text-[11px] text-slate-500 tabular-nums mt-0.5">
                 메인 {mains} · 부속 {supps}
+              </p>
+              <p className="text-[11px] tabular-nums mt-0.5">
+                <span className="text-slate-400">자동연장 {safe}</span>
+                {' · '}
+                <span className={actionNeeded > 0 ? 'text-rose-600 font-medium' : 'text-slate-400'}>
+                  조치 필요 {actionNeeded}
+                </span>
               </p>
             </div>
           );
@@ -167,17 +183,41 @@ export default async function ExpiringPage({
                 <td className="px-4 py-2">
                   <StatusBadge status={c.status} />
                 </td>
-                <td className="px-4 py-2 tabular-nums">{fmtDate(c.expiry)}</td>
+                <td className="px-4 py-2 tabular-nums">
+                  <div className="flex items-center gap-1.5">
+                    <span>{fmtDate(c.expiry)}</span>
+                    {c.auto_renewal && (
+                      <span
+                        className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset ring-orange-200 bg-orange-50 text-orange-700"
+                        title={
+                          c.auto_renewal_end_date
+                            ? `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)} (최대 ${c.auto_renewal_end_date})`
+                            : `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)}`
+                        }
+                      >
+                        🔄 {formatAutoRenewalPeriod(c.auto_renewal_period_months)}
+                      </span>
+                    )}
+                  </div>
+                </td>
                 <td
                   className={`px-4 py-2 text-right tabular-nums ${
-                    (c.days ?? 0) <= 30
-                      ? 'text-red-600 font-semibold'
-                      : (c.days ?? 0) <= 60
-                        ? 'text-amber-600'
-                        : 'text-slate-700'
+                    isSafeRenewal(c)
+                      ? 'text-slate-400'
+                      : (c.days ?? 0) <= 30
+                        ? 'text-red-600 font-semibold'
+                        : (c.days ?? 0) <= 60
+                          ? 'text-amber-600'
+                          : 'text-slate-700'
                   }`}
+                  title={
+                    isSafeRenewal(c)
+                      ? '자동연장 계약 — 이 시점에 다음 주기로 갱신됩니다 (종료 아님)'
+                      : '자동연장 없음 — 만료 전 갱신 착수 필요'
+                  }
                 >
                   D-{c.days}
+                  {isSafeRenewal(c) && <span className="ml-1 text-[10px]">자동갱신</span>}
                 </td>
               </tr>
             ))}

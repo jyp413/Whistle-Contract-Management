@@ -9,6 +9,7 @@ import {
   fmtDate,
   daysUntil,
   effectiveExpiry,
+  formatAutoRenewalPeriod,
 } from '@/lib/utils';
 
 export const runtime = 'nodejs';
@@ -63,6 +64,8 @@ export async function GET(request: NextRequest) {
     { header: '상태', key: 'status', width: 10 },
     { header: '실효 만료일', key: 'expiry', width: 14 },
     { header: 'D-day', key: 'dday', width: 10 },
+    { header: '자동연장', key: 'autoRenewal', width: 14 },
+    { header: '구분', key: 'risk', width: 12 },
     { header: '계약 ID', key: 'id', width: 38 },
   ];
 
@@ -74,6 +77,10 @@ export async function GET(request: NextRequest) {
   };
 
   enriched.forEach((c, idx) => {
+    // 자동연장 계약 중 종료일 cap 에 안 걸린 것 = 실제 종료 위험 없음 (다음 주기로 갱신)
+    const safeRenewal =
+      c.auto_renewal &&
+      !(c.auto_renewal_end_date != null && c.expiry === c.auto_renewal_end_date);
     ws.addRow({
       no: idx + 1,
       lg: c.local_governments?.full_name ?? '-',
@@ -83,6 +90,10 @@ export async function GET(request: NextRequest) {
       status: STATUS_LABEL[c.status],
       expiry: fmtDate(c.expiry),
       dday: c.days !== null ? `D-${c.days}` : '-',
+      autoRenewal: c.auto_renewal
+        ? `${formatAutoRenewalPeriod(c.auto_renewal_period_months)}${c.auto_renewal_end_date ? ` (~${c.auto_renewal_end_date})` : ''}`
+        : '',
+      risk: safeRenewal ? '자동갱신' : '조치 필요',
       id: c.id,
     });
   });
