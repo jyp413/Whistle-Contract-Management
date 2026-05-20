@@ -236,6 +236,10 @@ export type Database = {
           auto_renewal: boolean
           auto_renewal_end_date: string | null
           auto_renewal_period_months: number | null
+          contact_department: string | null
+          contact_email: string | null
+          contact_name: string | null
+          contact_phone: string | null
           contract_type: Database["public"]["Enums"]["contract_type"]
           contracting_party: Database["public"]["Enums"]["contracting_party"]
           created_at: string
@@ -261,6 +265,10 @@ export type Database = {
           auto_renewal?: boolean
           auto_renewal_end_date?: string | null
           auto_renewal_period_months?: number | null
+          contact_department?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
           contract_type?: Database["public"]["Enums"]["contract_type"]
           contracting_party?: Database["public"]["Enums"]["contracting_party"]
           created_at?: string
@@ -286,6 +294,10 @@ export type Database = {
           auto_renewal?: boolean
           auto_renewal_end_date?: string | null
           auto_renewal_period_months?: number | null
+          contact_department?: string | null
+          contact_email?: string | null
+          contact_name?: string | null
+          contact_phone?: string | null
           contract_type?: Database["public"]["Enums"]["contract_type"]
           contracting_party?: Database["public"]["Enums"]["contracting_party"]
           created_at?: string
@@ -394,10 +406,6 @@ export type Database = {
       local_governments: {
         Row: {
           classification: Database["public"]["Enums"]["lg_class"]
-          contact_department: string | null
-          contact_email: string | null
-          contact_name: string | null
-          contact_phone: string | null
           created_at: string
           deleted_at: string | null
           full_name: string
@@ -410,10 +418,6 @@ export type Database = {
         }
         Insert: {
           classification: Database["public"]["Enums"]["lg_class"]
-          contact_department?: string | null
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
           full_name: string
@@ -426,10 +430,6 @@ export type Database = {
         }
         Update: {
           classification?: Database["public"]["Enums"]["lg_class"]
-          contact_department?: string | null
-          contact_email?: string | null
-          contact_name?: string | null
-          contact_phone?: string | null
           created_at?: string
           deleted_at?: string | null
           full_name?: string

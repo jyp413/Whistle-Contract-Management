@@ -16,7 +16,7 @@ import ContractActions from './contract-actions';
 import FilePreviewButton from './file-preview';
 import EditMetaButton from './edit-meta-button';
 import FileDeleteButton from './file-delete-button';
-import LGContactCard from './lg-contact-card';
+import ContactCard from './contact-card';
 import SupplementCard, { type SupplementInfo } from './supplement-card';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +42,7 @@ export default async function ContractDetailPage({
   const { data: contract, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification, contact_department, contact_name, contact_phone, contact_email)',
+      'id, status, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, contact_department, contact_name, contact_phone, contact_email, termination_reason, memo, version, parent_contract_id, master_contract_id, contract_type, contracting_party, local_government_id, created_at, updated_at, local_governments(full_name, sigungu, classification)',
     )
     .eq('id', id)
     .is('deleted_at', null)
@@ -311,15 +311,13 @@ export default async function ContractDetailPage({
           </p>
         </section>
 
-        <LGContactCard
+        <ContactCard
           contractId={contract.id}
-          localGovernmentId={contract.local_government_id}
-          lgName={contract.local_governments?.full_name ?? ''}
           initial={{
-            contact_department: contract.local_governments?.contact_department ?? null,
-            contact_name: contract.local_governments?.contact_name ?? null,
-            contact_phone: contract.local_governments?.contact_phone ?? null,
-            contact_email: contract.local_governments?.contact_email ?? null,
+            contact_department: contract.contact_department,
+            contact_name: contract.contact_name,
+            contact_phone: contract.contact_phone,
+            contact_email: contract.contact_email,
           }}
           canEdit={writer}
         />

@@ -41,11 +41,11 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
   // Promise.all 로 병렬 실행한다 (CSV 구분자 ',' '(' ')' '.' 등이 needle 에 들어가도 안전).
   const like = `%${needle.replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
 
-  // 1) contracts: memo / termination_reason
-  // 2) local_governments: full_name / contact_*  → contract ids via local_government_id
+  // 1) contracts: memo / termination_reason / contact_*  (담당자는 계약 단위 — 직접 hit)
+  // 2) local_governments: full_name  → contract ids via local_government_id
   // 3) contract_files: original_filename → contract_id
 
-  const [cMemo, cTerm, lgName, lgDept, lgPerson, lgPhone, lgEmail, fs] = await Promise.all([
+  const [cMemo, cTerm, cDept, cPerson, cPhone, cEmail, lgName, fs] = await Promise.all([
     supabase
       .from('contracts')
       .select('id, memo')
@@ -59,34 +59,34 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
       .ilike('termination_reason', like)
       .limit(SEARCH_LIMIT),
     supabase
-      .from('local_governments')
-      .select('id, full_name')
-      .is('deleted_at', null)
-      .ilike('full_name', like)
-      .limit(SEARCH_LIMIT),
-    supabase
-      .from('local_governments')
+      .from('contracts')
       .select('id, contact_department')
       .is('deleted_at', null)
       .ilike('contact_department', like)
       .limit(SEARCH_LIMIT),
     supabase
-      .from('local_governments')
+      .from('contracts')
       .select('id, contact_name')
       .is('deleted_at', null)
       .ilike('contact_name', like)
       .limit(SEARCH_LIMIT),
     supabase
-      .from('local_governments')
+      .from('contracts')
       .select('id, contact_phone')
       .is('deleted_at', null)
       .ilike('contact_phone', like)
       .limit(SEARCH_LIMIT),
     supabase
-      .from('local_governments')
+      .from('contracts')
       .select('id, contact_email')
       .is('deleted_at', null)
       .ilike('contact_email', like)
+      .limit(SEARCH_LIMIT),
+    supabase
+      .from('local_governments')
+      .select('id, full_name')
+      .is('deleted_at', null)
+      .ilike('full_name', like)
       .limit(SEARCH_LIMIT),
     supabase
       .from('contract_files')
@@ -109,8 +109,13 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
 
   for (const r of cMemo.data ?? []) add(r.id, 'memo');
   for (const r of cTerm.data ?? []) add(r.id, 'termination_reason');
+  // 담당자는 계약 단위 — contract id 직접 hit
+  for (const r of cDept.data ?? []) add(r.id, 'contact_department');
+  for (const r of cPerson.data ?? []) add(r.id, 'contact_name');
+  for (const r of cPhone.data ?? []) add(r.id, 'contact_phone');
+  for (const r of cEmail.data ?? []) add(r.id, 'contact_email');
 
-  // LG hits → 해당 LG의 모든 활성 계약 id 조회 (어느 컬럼에서 매치됐는지 라벨 매핑)
+  // LG hits (full_name) → 해당 LG의 모든 활성 계약 id 조회
   const lgMatches = new Map<string, Set<SearchMatch>>();
   function addLg(lgId: string, m: SearchMatch) {
     let s = lgMatches.get(lgId);
@@ -121,10 +126,6 @@ export async function searchAll(q: string): Promise<{ hits: SearchHit[]; truncat
     s.add(m);
   }
   for (const r of lgName.data ?? []) addLg(r.id, 'lg_name');
-  for (const r of lgDept.data ?? []) addLg(r.id, 'contact_department');
-  for (const r of lgPerson.data ?? []) addLg(r.id, 'contact_name');
-  for (const r of lgPhone.data ?? []) addLg(r.id, 'contact_phone');
-  for (const r of lgEmail.data ?? []) addLg(r.id, 'contact_email');
 
   if (lgMatches.size > 0) {
     const lgIds = Array.from(lgMatches.keys());

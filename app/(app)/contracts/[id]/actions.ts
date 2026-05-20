@@ -760,19 +760,16 @@ export async function updateContractMeta(input: {
 }
 
 /**
- * 지자체 담당자 정보 수정 (department / name / phone / email).
- * 같은 LG의 모든 계약이 동일 담당자를 공유.
+ * 계약 담당자 정보 수정 (department / name / phone / email).
+ * 담당자는 계약(contracts) 단위 — 같은 LG라도 계약별로 다를 수 있음 (주차단속 vs 유지보수 등).
  * 권한: writer+ (master / accounting).
- * activity_logs target_type='local_government', event_type='contract_update' (재사용).
- *
- * IDOR 방지: 클라이언트가 보낸 localGovernmentId가 contract.local_government_id와
- * 일치하는지 서버에서 검증한 뒤에만 update 수행.
+ * activity_logs target_type='contract', event_type='contract_update'.
+ * version 낙관락은 적용하지 않음 — 담당자는 메타/상태와 독립 필드라 충돌 영향 없음.
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export async function updateLGContact(input: {
+export async function updateContractContact(input: {
   contractId: string;
-  localGovernmentId: string;
   contact_department: string | null;
   contact_name: string | null;
   contact_phone: string | null;
@@ -788,34 +785,24 @@ export async function updateLGContact(input: {
     return { error: '전화번호가 너무 깁니다.' };
   }
 
-  // contract 로드 후 LG 소유 검증 (IDOR 방지)
-  const { data: contract, error: cErr } = await supabase
+  const { data: before, error: cErr } = await supabase
     .from('contracts')
-    .select('id, local_government_id')
+    .select('id, contact_department, contact_name, contact_phone, contact_email')
     .eq('id', input.contractId)
     .is('deleted_at', null)
     .single();
-  if (cErr || !contract) return { error: '계약을 찾을 수 없습니다.' };
-  if (contract.local_government_id !== input.localGovernmentId) {
-    return { error: '계약과 지자체 정보가 일치하지 않습니다.' };
-  }
-
-  const { data: before } = await supabase
-    .from('local_governments')
-    .select('contact_department, contact_name, contact_phone, contact_email')
-    .eq('id', input.localGovernmentId)
-    .is('deleted_at', null)
-    .single();
+  if (cErr || !before) return { error: '계약을 찾을 수 없습니다.' };
 
   const { error } = await supabase
-    .from('local_governments')
+    .from('contracts')
     .update({
       contact_department: input.contact_department,
       contact_name: input.contact_name,
       contact_phone: input.contact_phone,
       contact_email: input.contact_email,
+      updated_by: me.id,
     })
-    .eq('id', input.localGovernmentId)
+    .eq('id', input.contractId)
     .is('deleted_at', null);
 
   if (error) return { error: error.message };
@@ -823,9 +810,14 @@ export async function updateLGContact(input: {
   const { error: logErr } = await supabase.from('activity_logs').insert({
     actor_id: me.id,
     event_type: 'contract_update',
-    target_type: 'local_government',
-    target_id: input.localGovernmentId,
-    before_value: before ?? {},
+    target_type: 'contract',
+    target_id: input.contractId,
+    before_value: {
+      contact_department: before.contact_department,
+      contact_name: before.contact_name,
+      contact_phone: before.contact_phone,
+      contact_email: before.contact_email,
+    },
     after_value: {
       contact_department: input.contact_department,
       contact_name: input.contact_name,
@@ -833,7 +825,7 @@ export async function updateLGContact(input: {
       contact_email: input.contact_email,
     },
   });
-  if (logErr) console.error('[updateLGContact] activity_logs insert failed:', logErr);
+  if (logErr) console.error('[updateContractContact] activity_logs insert failed:', logErr);
 
   revalidatePath(`/contracts/${input.contractId}`);
   return { ok: true };

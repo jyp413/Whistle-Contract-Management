@@ -199,6 +199,11 @@ const MouSupplementSchema = z.object({
   effective_date: z.string().nullable(),
   expiry_date: z.string().nullable(),
   amount_krw: z.number().int().nonnegative().nullable(),
+  // mou 담당자는 메인과 별개 (회계과 등) — 자체 입력
+  contact_department: z.string().nullable(),
+  contact_name: z.string().nullable(),
+  contact_phone: z.string().nullable(),
+  contact_email: z.string().nullable(),
 });
 const PlainSupplementSchema = z.object({
   type: z.enum(['personal_info_outsourcing', 'other']),
@@ -224,6 +229,12 @@ const BatchSchema = z.object({
   auto_renewal: z.boolean(),
   auto_renewal_period_months: z.number().int().positive().nullable(),
   auto_renewal_end_date: z.string().nullable(),
+  // 메인 담당자 — 메인 + 일반 부속(personal_info_outsourcing/other)이 공유.
+  // 부속만 등록 시(include_main=false)엔 기존 메인의 담당자를 상속하므로 무시됨.
+  contact_department: z.string().nullable(),
+  contact_name: z.string().nullable(),
+  contact_phone: z.string().nullable(),
+  contact_email: z.string().nullable(),
   // 중복 경고 모달에서 사용자가 "그대로 등록" 클릭 시 true 로 재호출
   force: z.boolean().optional().default(false),
 });
@@ -299,6 +310,13 @@ export async function createContractBatch(input: unknown): Promise<
     auto_renewal_period_months: number | null;
     auto_renewal_end_date: string | null;
   };
+  // 일반 부속(personal_info_outsourcing/other)이 상속할 담당자 — 메인 또는 기존 마스터에서.
+  let contactSource: {
+    contact_department: string | null;
+    contact_name: string | null;
+    contact_phone: string | null;
+    contact_email: string | null;
+  };
   let mainId: string | null = null;
   const supabase = supabaseEarly;
 
@@ -363,6 +381,10 @@ export async function createContractBatch(input: unknown): Promise<
           ? v.auto_renewal_period_months
           : null,
         auto_renewal_end_date: v.auto_renewal ? v.auto_renewal_end_date : null,
+        contact_department: v.contact_department,
+        contact_name: v.contact_name,
+        contact_phone: v.contact_phone,
+        contact_email: v.contact_email,
         created_by: me.id,
         updated_by: me.id,
       })
@@ -399,12 +421,18 @@ export async function createContractBatch(input: unknown): Promise<
         : null,
       auto_renewal_end_date: v.auto_renewal ? v.auto_renewal_end_date : null,
     };
+    contactSource = {
+      contact_department: v.contact_department,
+      contact_name: v.contact_name,
+      contact_phone: v.contact_phone,
+      contact_email: v.contact_email,
+    };
   } else {
-    // 부속만 등록 → 기존 메인의 일자/자동연장을 복사
+    // 부속만 등록 → 기존 메인의 일자/자동연장/담당자를 복사
     const masterRes = await supabase
       .from('contracts')
       .select(
-        'id, local_government_id, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, status',
+        'id, local_government_id, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, contact_department, contact_name, contact_phone, contact_email, status',
       )
       .eq('id', v.existing_master_id!)
       .is('deleted_at', null)
@@ -427,6 +455,12 @@ export async function createContractBatch(input: unknown): Promise<
       auto_renewal: masterRes.data.auto_renewal,
       auto_renewal_period_months: masterRes.data.auto_renewal_period_months,
       auto_renewal_end_date: masterRes.data.auto_renewal_end_date,
+    };
+    contactSource = {
+      contact_department: masterRes.data.contact_department,
+      contact_name: masterRes.data.contact_name,
+      contact_phone: masterRes.data.contact_phone,
+      contact_email: masterRes.data.contact_email,
     };
   }
 
@@ -476,6 +510,16 @@ export async function createContractBatch(input: unknown): Promise<
     // mou 부속은 도메인상 항상 모노플랫폼 직접 — 폼의 주체값 무시하고 강제
     const supParty: 'monoplatform' | 'imcity' = isMou ? 'monoplatform' : v.contracting_party;
 
+    // 담당자: mou는 자체 입력, 일반 부속은 메인/기존마스터 담당자 상속
+    const supContact = mouSup
+      ? {
+          contact_department: mouSup.contact_department,
+          contact_name: mouSup.contact_name,
+          contact_phone: mouSup.contact_phone,
+          contact_email: mouSup.contact_email,
+        }
+      : contactSource;
+
     const ins = await supabase
       .from('contracts')
       .insert({
@@ -493,6 +537,10 @@ export async function createContractBatch(input: unknown): Promise<
         auto_renewal_period_months: supDates.auto_renewal_period_months,
         auto_renewal_end_date: supDates.auto_renewal_end_date,
         amount_krw: supAmount,
+        contact_department: supContact.contact_department,
+        contact_name: supContact.contact_name,
+        contact_phone: supContact.contact_phone,
+        contact_email: supContact.contact_email,
         created_by: me.id,
         updated_by: me.id,
       })

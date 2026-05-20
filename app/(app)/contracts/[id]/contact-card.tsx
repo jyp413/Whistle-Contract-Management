@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { updateLGContact } from './actions';
+import { updateContractContact } from './actions';
 import Modal from '@/app/components/modal';
 
 type Contact = {
@@ -12,16 +12,16 @@ type Contact = {
   contact_email: string | null;
 };
 
-export default function LGContactCard({
+/**
+ * 계약 담당자 카드 — 담당자는 계약(contracts) 단위.
+ * 같은 지자체라도 계약별(주차단속/유지보수 등)로 담당 부서·담당자가 다를 수 있음.
+ */
+export default function ContactCard({
   contractId,
-  localGovernmentId,
-  lgName,
   initial,
   canEdit,
 }: {
   contractId: string;
-  localGovernmentId: string;
-  lgName: string;
   initial: Contact;
   canEdit: boolean;
 }) {
@@ -35,7 +35,7 @@ export default function LGContactCard({
   return (
     <section className="bg-white border border-slate-200 rounded-lg p-6">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-sm font-semibold text-slate-900">지자체 담당자</h2>
+        <h2 className="text-sm font-semibold text-slate-900">계약 담당자</h2>
         {canEdit && (
           <button
             type="button"
@@ -65,8 +65,6 @@ export default function LGContactCard({
       {open && (
         <EditModal
           contractId={contractId}
-          localGovernmentId={localGovernmentId}
-          lgName={lgName}
           initial={initial}
           onClose={() => setOpen(false)}
         />
@@ -86,14 +84,10 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 function EditModal({
   contractId,
-  localGovernmentId,
-  lgName,
   initial,
   onClose,
 }: {
   contractId: string;
-  localGovernmentId: string;
-  lgName: string;
   initial: Contact;
   onClose: () => void;
 }) {
@@ -114,9 +108,8 @@ function EditModal({
       return;
     }
     startTransition(async () => {
-      const r = await updateLGContact({
+      const r = await updateContractContact({
         contractId,
-        localGovernmentId,
         contact_department: dept || null,
         contact_name: name || null,
         contact_phone: phone || null,
@@ -132,7 +125,7 @@ function EditModal({
   }
 
   return (
-    <Modal title={`${lgName} · 담당자 수정`} onClose={onClose} maxWidth="lg">
+    <Modal title="계약 담당자 수정" onClose={onClose} maxWidth="lg">
       <form onSubmit={submit} className="space-y-3">
         <Row label="담당 부서">
           <input type="text" value={dept} onChange={(e) => setDept(e.target.value)} className="w-full px-3 py-2 border border-slate-300 rounded text-sm" />
@@ -152,7 +145,7 @@ function EditModal({
         )}
 
         <p className="text-[11px] text-slate-500">
-          ⓘ 담당자 정보는 같은 지자체의 모든 계약(메인·부속)이 공유합니다.
+          ⓘ 담당자는 이 계약 한 건에만 적용됩니다. 같은 지자체라도 계약별로 다를 수 있습니다.
         </p>
 
         <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">

@@ -34,13 +34,13 @@ export type MouRow = {
   memo: string | null;
   version: number;
   updated_at: string;
+  contact_department: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
   local_governments: {
     full_name: string | null;
     sigungu: string | null;
-    contact_department: string | null;
-    contact_name: string | null;
-    contact_phone: string | null;
-    contact_email: string | null;
   } | null;
 };
 
@@ -135,19 +135,19 @@ export default function MaintenanceTable({
                   </Link>
                 </td>
                 <td className="px-4 py-2 text-xs text-slate-700">
-                  {lg?.contact_department && (
-                    <p className="text-slate-500">{lg.contact_department}</p>
+                  {c.contact_department && (
+                    <p className="text-slate-500">{c.contact_department}</p>
                   )}
-                  <p>{lg?.contact_name ?? '-'}</p>
+                  <p>{c.contact_name ?? '-'}</p>
                 </td>
                 <td className="px-4 py-2 text-xs text-slate-700 tabular-nums">
-                  {lg?.contact_phone && <p>{lg.contact_phone}</p>}
-                  {lg?.contact_email && (
-                    <p className="text-slate-500 truncate max-w-[180px]" title={lg.contact_email}>
-                      {lg.contact_email}
+                  {c.contact_phone && <p>{c.contact_phone}</p>}
+                  {c.contact_email && (
+                    <p className="text-slate-500 truncate max-w-[180px]" title={c.contact_email}>
+                      {c.contact_email}
                     </p>
                   )}
-                  {!lg?.contact_phone && !lg?.contact_email && '-'}
+                  {!c.contact_phone && !c.contact_email && '-'}
                 </td>
                 <td className="px-4 py-2">
                   <StatusBadge status={c.status} />

@@ -100,12 +100,22 @@ export default function NewContractForm({
   const [autoRenewalEndDate, setAutoRenewalEndDate] = useState('');
   const [memo, setMemo] = useState('');
 
-  // 유지보수(mou) 부속 전용 — 메인과 다른 일자·금액 보유.
+  // 메인 담당자 — 메인 + 일반 부속(개인정보/기타)이 공유
+  const [contactDept, setContactDept] = useState('');
+  const [contactName, setContactName] = useState('');
+  const [contactPhone, setContactPhone] = useState('');
+  const [contactEmail, setContactEmail] = useState('');
+
+  // 유지보수(mou) 부속 전용 — 메인과 다른 일자·금액·담당자 보유.
   // 도메인 룰: mou는 연장 개념 없음 → 연장 후 만료일/자동연장 필드 미제공 (invariant #9)
   const [mouSignedDate, setMouSignedDate] = useState('');
   const [mouEffectiveDate, setMouEffectiveDate] = useState('');
   const [mouExpiryDate, setMouExpiryDate] = useState('');
   const [mouAmountKrw, setMouAmountKrw] = useState<number | null>(null);
+  const [mouContactDept, setMouContactDept] = useState('');
+  const [mouContactName, setMouContactName] = useState('');
+  const [mouContactPhone, setMouContactPhone] = useState('');
+  const [mouContactEmail, setMouContactEmail] = useState('');
 
   const today = new Date().toISOString().slice(0, 10);
   const expiryIsPast = !!expiryDate && expiryDate < today;
@@ -265,6 +275,10 @@ export default function NewContractForm({
             auto_renewal_period_months: null,
             auto_renewal_end_date: null,
             amount_krw: mouAmountKrw,
+            contact_department: mouContactDept || null,
+            contact_name: mouContactName || null,
+            contact_phone: mouContactPhone || null,
+            contact_email: mouContactEmail || null,
           };
         }
         return { type: t };
@@ -287,6 +301,10 @@ export default function NewContractForm({
             ? autoRenewalEndDate || null
             : null
           : null,
+        contact_department: includeMain ? contactDept || null : null,
+        contact_name: includeMain ? contactName || null : null,
+        contact_phone: includeMain ? contactPhone || null : null,
+        contact_email: includeMain ? contactEmail || null : null,
         force,
       });
       if (result.duplicates && result.duplicates.length > 0) {
@@ -525,6 +543,22 @@ export default function NewContractForm({
                 </div>
               </div>
             )}
+
+            {/* 계약 담당자 — 메인 + 일반 부속(개인정보/기타) 공유. 유지보수는 자체 입력. */}
+            <div className="rounded border border-slate-200 bg-white p-3 space-y-3">
+              <p className="text-xs font-medium text-slate-700">
+                👤 계약 담당자{' '}
+                <span className="font-normal text-slate-500">
+                  (선택 — 개인정보·기타 부속은 이 담당자를 상속, 유지보수는 별도 입력)
+                </span>
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <ContactField label="담당 부서" value={contactDept} onChange={setContactDept} />
+                <ContactField label="담당자명" value={contactName} onChange={setContactName} />
+                <ContactField label="연락처" value={contactPhone} onChange={setContactPhone} placeholder="010-0000-0000" />
+                <ContactField label="이메일" value={contactEmail} onChange={setContactEmail} placeholder="example@example.com" />
+              </div>
+            </div>
           </div>
         ) : (
           supplementOnly && (
@@ -650,6 +684,20 @@ export default function NewContractForm({
                   onChange={setMouAmountKrw}
                   placeholder="예: 7,478,000"
                 />
+              </div>
+            </div>
+            <div className="border-t border-teal-200 pt-3">
+              <p className="text-xs font-medium text-teal-900 mb-2">
+                유지보수 담당자
+                <span className="text-slate-500 font-normal ml-1">
+                  (메인과 별개 — 예: 회계과)
+                </span>
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <ContactField label="담당 부서" value={mouContactDept} onChange={setMouContactDept} />
+                <ContactField label="담당자명" value={mouContactName} onChange={setMouContactName} />
+                <ContactField label="연락처" value={mouContactPhone} onChange={setMouContactPhone} placeholder="010-0000-0000" />
+                <ContactField label="이메일" value={mouContactEmail} onChange={setMouContactEmail} placeholder="example@example.com" />
               </div>
             </div>
           </div>
@@ -887,6 +935,33 @@ function FormDate({
         {label}
       </label>
       <DateInput value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+function ContactField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-700 mb-1">
+        {label}
+      </label>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full px-3 py-2 border border-slate-300 rounded text-sm"
+      />
     </div>
   );
 }

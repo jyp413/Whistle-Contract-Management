@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
   const { data: contracts, error } = await supabase
     .from('contracts')
     .select(
-      'id, status, contract_type, contracting_party, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, termination_reason, memo, updated_at, local_governments(full_name, sigungu, sido, contact_department, contact_name, contact_phone, contact_email)',
+      'id, status, contract_type, contracting_party, signed_date, effective_date, expiry_date, extended_expiry_date, auto_renewal, auto_renewal_period_months, auto_renewal_end_date, amount_krw, termination_reason, memo, updated_at, contact_department, contact_name, contact_phone, contact_email, local_governments(full_name, sigungu, sido)',
     )
     .eq('contract_type', 'mou')
     .is('deleted_at', null)
@@ -45,10 +45,10 @@ export async function GET(request: NextRequest) {
       const lg = c.local_governments;
       return (
         (lg?.full_name ?? '').toLowerCase().includes(needle) ||
-        (lg?.contact_department ?? '').toLowerCase().includes(needle) ||
-        (lg?.contact_name ?? '').toLowerCase().includes(needle) ||
-        (lg?.contact_phone ?? '').toLowerCase().includes(needle) ||
-        (lg?.contact_email ?? '').toLowerCase().includes(needle) ||
+        (c.contact_department ?? '').toLowerCase().includes(needle) ||
+        (c.contact_name ?? '').toLowerCase().includes(needle) ||
+        (c.contact_phone ?? '').toLowerCase().includes(needle) ||
+        (c.contact_email ?? '').toLowerCase().includes(needle) ||
         (c.memo ?? '').toLowerCase().includes(needle)
       );
     });
@@ -93,10 +93,10 @@ export async function GET(request: NextRequest) {
     ws.addRow({
       no: idx + 1,
       lg: lg?.full_name ?? '-',
-      dept: lg?.contact_department ?? '',
-      contact: lg?.contact_name ?? '',
-      phone: lg?.contact_phone ?? '',
-      email: lg?.contact_email ?? '',
+      dept: c.contact_department ?? '',
+      contact: c.contact_name ?? '',
+      phone: c.contact_phone ?? '',
+      email: c.contact_email ?? '',
       status: STATUS_LABEL[c.status],
       signed: fmtDate(c.signed_date),
       effective: fmtDate(c.effective_date),
