@@ -52,6 +52,12 @@ type Props = {
 
 const TOPO_URL = '/geo/korea-admin.topo.json';
 
+// nation view 한정 시도 라벨 수직 오프셋 (size.h 비율). 경기도는 서울 라벨과
+// 겹쳐 보이지 않으므로 아래(남부 경기)로 내린다.
+const NATION_LABEL_OFFSET: Record<string, { dy: number }> = {
+  '31': { dy: 0.055 },
+};
+
 export function RegionMap({ stats }: Props) {
   const [topo, setTopo] = useState<Topology | null>(null);
   const [view, setView] = useState<View>({ level: 'nation' });
@@ -93,10 +99,14 @@ export function RegionMap({ stats }: Props) {
   }, [topo, stats, view]);
 
   // 본토만으로 projection 을 fit → mainland 확대. 제주/울릉은 별도 transform으로 inset 배치.
+  // 제주(시도 '39')는 nation view 에서, 울릉군(시군구 '37430')은 nation view +
+  // 경상북도 sido view 에서 inset 처리한다.
   const isOffshore = (code: string): 'jeju' | 'ulleung' | null => {
-    if (view.level !== 'nation') return null;
-    if (code.startsWith('50')) return 'jeju';
-    if (code === '37320') return 'ulleung';
+    if (code === '39' && view.level === 'nation') return 'jeju';
+    if (code === '37430') {
+      if (view.level === 'nation') return 'ulleung';
+      if (view.level === 'sido' && view.sido === '경상북도') return 'ulleung';
+    }
     return null;
   };
 
@@ -120,19 +130,101 @@ export function RegionMap({ stats }: Props) {
 
   const path = useMemo(() => (projection ? geoPath(projection) : null), [projection]);
 
-  // 제주·울릉 inset 위치: 본토 viewBox 안의 빈 자리.
-  // 제주는 본토 남서쪽 빈 공간 (좌하단), 울릉은 본토 오른쪽 빈 공간 (우상단).
+  // 제주·울릉 inset 목표 위치 — 본토 viewBox 안의 빈 모서리.
+  // 제주는 우하단, 울릉은 우상단. transform·라벨·테두리 박스가 모두 공유한다.
+  const offshoreTarget = (kind: 'jeju' | 'ulleung') => {
+    if (kind === 'jeju') {
+      return { x: size.w * 0.82, y: size.h * 0.86, scale: 1.0 };
+    }
+    // 울릉 — nation view·경북 sido view 모두 우상단. sido view 는 울릉이 더 크게
+    // 투영되므로 scale 을 낮춰 박스가 우상단 모서리 안에 들어오도록 한다.
+    const sidoView = view.level === 'sido';
+    return {
+      x: size.w * 0.88,
+      y: size.h * 0.14,
+      scale: sidoView ? 1.4 : 3.0,
+    };
+  };
+
   const offshoreTransform = (kind: 'jeju' | 'ulleung', vf: ViewFeature): string => {
-    if (!path || !projection) return '';
+    if (!path) return '';
     const c = path.centroid(vf.feature);
     if (!isFinite(c[0]) || !isFinite(c[1])) return '';
-    const target = kind === 'jeju'
-      ? { x: size.w * 0.18, y: size.h * 0.82, scale: 1.0 }
-      : { x: size.w * 0.86, y: size.h * 0.28, scale: 3.0 };
-    const dx = target.x - c[0] * target.scale;
-    const dy = target.y - c[1] * target.scale;
-    return `translate(${dx}, ${dy}) scale(${target.scale})`;
+    const t = offshoreTarget(kind);
+    const dx = t.x - c[0] * t.scale;
+    const dy = t.y - c[1] * t.scale;
+    return `translate(${dx}, ${dy}) scale(${t.scale})`;
   };
+
+  // offshore 섬을 감싸는 테두리 박스 (화면좌표).
+  // 한 점 p 의 화면 위치 = target + (p - centroid) * scale.
+  const offshoreBox = (
+    kind: 'jeju' | 'ulleung',
+    vf: ViewFeature,
+  ): { x: number; y: number; w: number; h: number } | null => {
+    if (!path) return null;
+    const c = path.centroid(vf.feature);
+    const b = path.bounds(vf.feature);
+    if (!isFinite(c[0]) || !isFinite(b[0][0])) return null;
+    const t = offshoreTarget(kind);
+    const sx0 = t.x + (b[0][0] - c[0]) * t.scale;
+    const sy0 = t.y + (b[0][1] - c[1]) * t.scale;
+    const sx1 = t.x + (b[1][0] - c[0]) * t.scale;
+    const sy1 = t.y + (b[1][1] - c[1]) * t.scale;
+    const padX = 7;
+    const padTop = 7;
+    const padBottom = 20; // 라벨 2줄이 박스 안에 들어가도록
+    return {
+      x: sx0 - padX,
+      y: sy0 - padTop,
+      w: sx1 - sx0 + padX * 2,
+      h: sy1 - sy0 + padTop + padBottom,
+    };
+  };
+
+  // 폴리곤 1개 렌더 — 본토/offshore 를 분리 렌더하기 위해 함수로 추출.
+  const renderPolygon = (vf: ViewFeature) => {
+    if (!path) return null;
+    const cov = coverageRate(vf.lgs);
+    const noData = vf.lgs.every((l) => l.total === 0);
+    const sum = sumParty(vf.lgs);
+    const fill = noData ? 'url(#map-hatch)' : '';
+    const cls = noData ? '' : partyRateColor(vf.lgs);
+    const isHovered = hovered === vf.key;
+    const d = path(vf.feature) ?? '';
+    const offshore = isOffshore(vf.feature.properties.code);
+    const groupTransform = offshore ? offshoreTransform(offshore, vf) : '';
+    return (
+      <g key={vf.key} transform={groupTransform || undefined}>
+        <path
+          d={d}
+          fill={fill || undefined}
+          className={`${cls} transition cursor-pointer ${isHovered ? 'stroke-slate-900 stroke-2' : 'stroke-white'} stroke-[0.6]`}
+          onMouseEnter={() => setHovered(vf.key)}
+          onMouseLeave={() => setHovered((h) => (h === vf.key ? null : h))}
+          onClick={() => {
+            if (vf.drillTo) {
+              setView(vf.drillTo);
+              setLeaf(null);
+            } else if (vf.leaf) {
+              setLeaf(vf.leaf);
+            }
+          }}
+        >
+          <title>
+            {vf.label} · {fmtPct(cov.rate)} ({cov.covered}/{cov.total}) · {TINT_LABEL[partyTint(sum)]}
+          </title>
+        </path>
+      </g>
+    );
+  };
+
+  const mainlandFeatures = viewFeatures.filter(
+    (v) => !isOffshore(v.feature.properties.code),
+  );
+  const offshoreFeatures = viewFeatures.filter((v) =>
+    isOffshore(v.feature.properties.code),
+  );
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5">
@@ -144,7 +236,10 @@ export function RegionMap({ stats }: Props) {
             setLeaf(null);
           }}
         />
-        <div ref={containerRef} className="mt-3 relative bg-slate-50 rounded-md overflow-hidden">
+        <div
+          ref={containerRef}
+          className="mt-3 relative bg-slate-50 rounded-md overflow-hidden max-w-[560px]"
+        >
           {!topo && (
             <div className="aspect-[5/6] flex items-center justify-center text-sm text-slate-400">
               지도 데이터 불러오는 중…
@@ -163,40 +258,27 @@ export function RegionMap({ stats }: Props) {
                   <line x1="0" y1="0" x2="0" y2="6" stroke="#cbd5e1" strokeWidth="1" />
                 </pattern>
               </defs>
-              {viewFeatures.map((vf) => {
-                const cov = coverageRate(vf.lgs);
-                const noData = vf.lgs.every((l) => l.total === 0);
-                const sum = sumParty(vf.lgs);
-                const fill = noData ? 'url(#map-hatch)' : '';
-                const cls = noData ? '' : partyRateColor(vf.lgs);
-                const isHovered = hovered === vf.key;
-                const d = path(vf.feature) ?? '';
-                const offshore = isOffshore(vf.feature.properties.code);
-                const groupTransform = offshore ? offshoreTransform(offshore, vf) : '';
+              {mainlandFeatures.map(renderPolygon)}
+              {offshoreFeatures.map((vf) => {
+                const kind = isOffshore(vf.feature.properties.code);
+                if (!kind) return null;
+                const box = offshoreBox(kind, vf);
+                if (!box) return null;
                 return (
-                  <g key={vf.key} transform={groupTransform || undefined}>
-                    <path
-                      d={d}
-                      fill={fill || undefined}
-                      className={`${cls} transition cursor-pointer ${isHovered ? 'stroke-slate-900 stroke-2' : 'stroke-white'} stroke-[0.6]`}
-                      onMouseEnter={() => setHovered(vf.key)}
-                      onMouseLeave={() => setHovered((h) => (h === vf.key ? null : h))}
-                      onClick={() => {
-                        if (vf.drillTo) {
-                          setView(vf.drillTo);
-                          setLeaf(null);
-                        } else if (vf.leaf) {
-                          setLeaf(vf.leaf);
-                        }
-                      }}
-                    >
-                      <title>
-                        {vf.label} · {fmtPct(cov.rate)} ({cov.covered}/{cov.total}) · {TINT_LABEL[partyTint(sum)]}
-                      </title>
-                    </path>
-                  </g>
+                  <rect
+                    key={`${vf.key}-box`}
+                    x={box.x}
+                    y={box.y}
+                    width={box.w}
+                    height={box.h}
+                    rx={3}
+                    fill="white"
+                    className="stroke-slate-300"
+                    strokeWidth={1}
+                  />
                 );
               })}
+              {offshoreFeatures.map(renderPolygon)}
               {viewFeatures.map((vf) => {
                 if (!path) return null;
                 const c = path.centroid(vf.feature);
@@ -212,13 +294,17 @@ export function RegionMap({ stats }: Props) {
                 const hasMaintenance = vf.lgs.some((l) => l.has_maintenance);
                 let labelTransform: string;
                 if (offshore) {
-                  // offshore transform과 동일하게 centroid 위치를 SVG 위로 옮김.
-                  const target = offshore === 'jeju'
-                    ? { x: size.w * 0.18, y: size.h * 0.82 }
-                    : { x: size.w * 0.86, y: size.h * 0.28 };
-                  labelTransform = `translate(${target.x},${target.y})`;
+                  // offshore transform과 동일한 목표 위치 공유.
+                  const t = offshoreTarget(offshore);
+                  labelTransform = `translate(${t.x},${t.y})`;
                 } else {
-                  labelTransform = `translate(${c[0]},${c[1]})`;
+                  const off =
+                    view.level === 'nation'
+                      ? NATION_LABEL_OFFSET[vf.feature.properties.code]
+                      : undefined;
+                  labelTransform = `translate(${c[0]},${
+                    c[1] + (off ? off.dy * size.h : 0)
+                  })`;
                 }
                 return (
                   <g
@@ -335,23 +421,81 @@ function buildViewFeatures(topo: Topology, stats: LgStat[], view: View): ViewFea
   }
 }
 
+// 경상북도 시도 폴리곤에서 울릉군(37430)을 분리.
+// 경북 본토는 울릉을 뺀 시군구를 merge 로 재구성하고, 울릉은 별도 피처로 반환.
+function splitGyeongbukUlleung(topo: Topology): {
+  gyeongbuk: GeoFeature | null;
+  ulleung: GeoFeature | null;
+} {
+  const sigungu = topo.objects.sigungu as GeometryCollection<GeoProps>;
+  const gb = sigungu.geometries.filter((g) =>
+    (g.properties as GeoProps | undefined)?.code?.startsWith('37'),
+  );
+  const ulleungGeom = gb.find((g) => (g.properties as GeoProps).code === '37430');
+  const rest = gb.filter((g) => (g.properties as GeoProps).code !== '37430');
+  if (!ulleungGeom || rest.length === 0) {
+    return { gyeongbuk: null, ulleung: null };
+  }
+  const merged = merge(
+    topo,
+    rest as Array<TopoPolygon<GeoProps> | TopoMultiPolygon<GeoProps>>,
+  ) as MultiPolygon;
+  return {
+    gyeongbuk: {
+      type: 'Feature',
+      geometry: merged,
+      properties: { name: '경상북도', code: '37' },
+    },
+    ulleung: {
+      type: 'Feature',
+      geometry: (feature(topo, ulleungGeom) as GeoFeature).geometry,
+      properties: { name: '울릉군', code: '37430' },
+    },
+  };
+}
+
 function buildNation(topo: Topology, stats: LgStat[]): ViewFeature[] {
   const fc = feature(
     topo,
     topo.objects.sido as GeometryCollection<GeoProps>,
   ) as FeatureCollection<Polygon | MultiPolygon, GeoProps>;
-  return fc.features.map((f) => {
+  const out: ViewFeature[] = [];
+  for (const f of fc.features) {
     const sidoName = SIDO_BY_GEO_CODE[f.properties.code] ?? f.properties.name;
     const lgs = lgsBySidoCode(stats, f.properties.code);
     const drillTo: View = { level: 'sido', sido: sidoName };
-    return {
+
+    if (f.properties.code === '37') {
+      // 경상북도: 울릉군을 본토 폴리곤에서 분리해 별도 inset 피처로.
+      const split = splitGyeongbukUlleung(topo);
+      out.push({
+        key: 'sido:37',
+        label: shortenSidoLabel(sidoName),
+        feature: split.gyeongbuk ?? f,
+        lgs,
+        drillTo,
+      });
+      if (split.ulleung) {
+        out.push({
+          key: 'offshore:ulleung',
+          label: '울릉',
+          feature: split.ulleung,
+          lgs: lgsByGeoCode(stats, '37430'),
+          drillTo, // 클릭 시 경상북도로 드릴다운
+        });
+      }
+      continue;
+    }
+
+    out.push({
       key: `sido:${f.properties.code}`,
       label: shortenSidoLabel(sidoName),
       feature: f,
       lgs,
       drillTo,
-    };
-  });
+    });
+  }
+  return out;
 }
 
 function buildSido(topo: Topology, stats: LgStat[], sidoName: string): ViewFeature[] {
