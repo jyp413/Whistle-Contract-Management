@@ -62,11 +62,15 @@ export default async function MaintenanceListPage({
 
   const allMou = contracts ?? [];
 
-  // 연도별 요약 — signed_date(체결일) 연도 기준
+  // 연도별 요약 — 용역 제공 연도 기준 = 실효 만료일(effectiveExpiry)의 연도.
+  // 체결일이 전년도 말(예: 2025-12)이라도 계약기간이 2026년이면 2026년 용역으로 집계.
+  // mou는 연장/자동연장 없음 → effectiveExpiry = expiry_date.
+  const mouYear = (c: (typeof allMou)[number]): string | null =>
+    effectiveExpiry(c)?.slice(0, 4) ?? null;
   const yearSummaryMap = new Map<string, { count: number; totalAmount: number }>();
   for (const c of allMou) {
-    if (!c.signed_date) continue;
-    const y = c.signed_date.slice(0, 4);
+    const y = mouYear(c);
+    if (!y) continue;
     const entry = yearSummaryMap.get(y) ?? { count: 0, totalAmount: 0 };
     entry.count += 1;
     if (c.amount_krw != null) entry.totalAmount += c.amount_krw;
@@ -82,10 +86,10 @@ export default async function MaintenanceListPage({
     totalAmount: allMou.reduce((sum, c) => sum + (c.amount_krw ?? 0), 0),
   };
 
-  // 연도 필터 적용 (signed_date 기준)
+  // 연도 필터 적용 (용역 제공 연도 = effectiveExpiry 기준)
   let filtered = allMou;
   if (yearParam !== 'all') {
-    filtered = filtered.filter((c) => c.signed_date?.startsWith(yearParam));
+    filtered = filtered.filter((c) => mouYear(c) === yearParam);
   }
 
   // 검색 필터 — column-wise ilike (보안: .or() DSL 금지)
@@ -257,7 +261,7 @@ export default async function MaintenanceListPage({
       {/* 연도 드랍다운 + 선택 연도 요약 + 검색 */}
       <form className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
         <div className="flex items-center gap-3 flex-wrap">
-          <label className="text-xs font-medium text-slate-700">체결 연도</label>
+          <label className="text-xs font-medium text-slate-700">용역 연도</label>
           <select
             name="year"
             defaultValue={yearParam}
@@ -272,14 +276,14 @@ export default async function MaintenanceListPage({
           <div className="text-xs text-slate-600 tabular-nums">
             {yearParam !== 'all' && selectedYearSummary ? (
               <>
-                <b className="text-slate-900">{yearParam}년 체결</b>:{' '}
+                <b className="text-slate-900">{yearParam}년 용역</b>:{' '}
                 <b>{selectedYearSummary.count}건</b>
                 {selectedYearSummary.totalAmount > 0 && (
                   <> · 총 <b>{fmtKrw(selectedYearSummary.totalAmount)}원</b></>
                 )}
               </>
             ) : yearParam !== 'all' ? (
-              <span className="text-slate-400">{yearParam}년 체결: 0건</span>
+              <span className="text-slate-400">{yearParam}년 용역: 0건</span>
             ) : (
               <>
                 <b className="text-slate-900">전체</b>: <b>{allSummary.count}건</b>
