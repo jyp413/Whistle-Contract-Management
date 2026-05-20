@@ -38,7 +38,7 @@ export const PARTY_LABEL: Record<ContractingParty, string> = {
 };
 
 export const PARTY_BADGE: Record<ContractingParty, string> = {
-  monoplatform: 'bg-indigo-50 text-indigo-700 ring-indigo-600/20',
+  monoplatform: 'bg-orange-50 text-orange-700 ring-orange-600/20',
   imcity: 'bg-purple-50 text-purple-700 ring-purple-600/20',
 };
 
