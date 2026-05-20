@@ -15,7 +15,10 @@ npm run dev      # next dev (Turbopack)
 npm run build    # next build (also runs TypeScript type check)
 npm run start    # next start (production, requires prior build)
 npm run lint     # eslint
+npx tsc --noEmit # standalone type check (faster than full build for verifying types)
 ```
+
+**No automated test suite** — there is no jest/vitest/playwright setup. Verification is manual via the preview server (`mcp__Claude_Preview__preview_start`) and DB inspection via Supabase MCP. `npx tsc --noEmit` + dev-server error logs are the strongest pre-commit signals.
 
 For local preview, use `mcp__Claude_Preview__preview_start` (configured in `.claude/launch.json`) instead of running `npm run dev` directly. The dev server holds a per-directory port lock — only one instance can run per project at a time.
 
@@ -193,6 +196,7 @@ The seed file reflects the patched codes. If you re-run mapshaper on raw kostat 
 - Pages are async Server Components. Side-effect mutations live in colocated `actions.ts` files.
 - Modals/forms that need state are client components in the same folder (`upload-card.tsx`, `contract-actions.tsx`, etc.).
 - Date inputs handle nullable dates by passing `''` as the empty value, converted to `null` in the action. **All date inputs use `<DateInput>` ([app/components/date-input.tsx](app/components/date-input.tsx))** — text-only field that accepts `20260109` (8자리 자동 정규화) or `2026-01-09`. Native `<input type="date">` 사용 금지 (사용자 요청 — 키보드 입력 우선, native picker 마찰 제거).
+- **Money inputs use `<AmountKrwInput>` ([app/components/amount-krw-input.tsx](app/components/amount-krw-input.tsx))** — `value: number | null` controlled prop, raw digits internal state, `Intl.NumberFormat('ko-KR')` 콤마 표시 + 우측 "원" suffix. `<input type="number">` 사용 금지 (천 단위 콤마 표시 불가, 음수 입력 가능). 신규 등록 mou sub-section 및 `EditMetaModal` mou 한정 입력에 모두 같은 컴포넌트.
 - Status enum values come from `Database['public']['Enums']['contract_status']`. Do not redefine them as string literals.
 - All visible labels use the maps in `lib/utils.ts` (`STATUS_LABEL`, `PARTY_LABEL`, `TYPE_LABEL`, `ROLE_LABEL`, etc.) — keep these in sync with the DB ENUMs. Badge color classes follow the same `_BADGE` pattern.
 - Reusable success popup: `app/components/success-modal.tsx`. Use this for write-action completion (signed-in users want explicit acknowledgement before navigating away).
