@@ -52,6 +52,8 @@ export default async function DashboardPage({
     in_progress_count: 0,
     updating_count: 0,
     total_active: 0,
+    completed_lg: 0,
+    total_lg: 0,
     expiring_30d: 0,
     expiring_60d: 0,
     expiring_90d: 0,
@@ -88,8 +90,10 @@ export default async function DashboardPage({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <KpiCard
           title={STATUS_LABEL.completed}
-          value={kpi.completed_count}
-          total={kpi.total_active}
+          value={kpi.completed_lg}
+          total={kpi.total_lg}
+          totalUnit="곳"
+          caption="계약완료 지자체 / 전국 지자체 · 클릭하여 리스트 보기 →"
           tone="green"
           href="/contracts?status=completed"
         />
@@ -204,12 +208,16 @@ function KpiCard({
   title,
   value,
   total,
+  totalUnit,
+  caption,
   tone,
   href,
 }: {
   title: string;
   value: number;
   total: number;
+  totalUnit?: string;
+  caption?: string;
   tone: 'green' | 'orange' | 'blue';
   href: string;
 }) {
@@ -231,10 +239,13 @@ function KpiCard({
           {value}
         </span>
         <span className="text-sm text-slate-500 mb-1 tabular-nums">
-          / {total} ({pct}%)
+          / {total}
+          {totalUnit} ({pct}%)
         </span>
       </div>
-      <p className="text-[11px] text-slate-400 mt-2">클릭하여 리스트 보기 →</p>
+      <p className="text-[11px] text-slate-400 mt-2">
+        {caption ?? '클릭하여 리스트 보기 →'}
+      </p>
     </Link>
   );
 }

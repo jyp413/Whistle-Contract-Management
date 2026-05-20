@@ -507,11 +507,13 @@ export type Database = {
         Args: Record<string, never>
         Returns: {
           completed_count: number
+          completed_lg: number
           expiring_30d: number
           expiring_60d: number
           expiring_90d: number
           in_progress_count: number
           total_active: number
+          total_lg: number
           updating_count: number
         }[]
       }
