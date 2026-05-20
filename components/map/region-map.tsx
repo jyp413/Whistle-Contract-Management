@@ -134,15 +134,16 @@ export function RegionMap({ stats }: Props) {
   // 제주는 우하단, 울릉은 우상단. transform·라벨·테두리 박스가 모두 공유한다.
   const offshoreTarget = (kind: 'jeju' | 'ulleung') => {
     if (kind === 'jeju') {
-      return { x: size.w * 0.82, y: size.h * 0.86, scale: 1.0 };
+      // 제주 — 우하단 모서리 박스. 본토와 겹치지 않도록 깊숙이 내림.
+      return { x: size.w * 0.86, y: size.h * 0.9, scale: 1.0 };
     }
-    // 울릉 — nation view·경북 sido view 모두 우상단. sido view 는 울릉이 더 크게
-    // 투영되므로 scale 을 낮춰 박스가 우상단 모서리 안에 들어오도록 한다.
+    // 울릉 — 박스 없이 경북 북동쪽 해상에 작은 섬으로. 실제 위치보다 내륙에
+    // 가깝게 당겨 본토에서 너무 떨어져 보이지 않게 한다.
     const sidoView = view.level === 'sido';
     return {
-      x: size.w * 0.88,
-      y: size.h * 0.14,
-      scale: sidoView ? 1.4 : 3.0,
+      x: size.w * 0.9,
+      y: size.h * (sidoView ? 0.34 : 0.3),
+      scale: sidoView ? 1.5 : 2.0,
     };
   };
 
@@ -261,7 +262,8 @@ export function RegionMap({ stats }: Props) {
               {mainlandFeatures.map(renderPolygon)}
               {offshoreFeatures.map((vf) => {
                 const kind = isOffshore(vf.feature.properties.code);
-                if (!kind) return null;
+                // 제주만 테두리 박스. 울릉은 박스 없이 해상에 띄운다.
+                if (kind !== 'jeju') return null;
                 const box = offshoreBox(kind, vf);
                 if (!box) return null;
                 return (
