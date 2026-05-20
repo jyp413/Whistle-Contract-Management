@@ -10,7 +10,8 @@ export default async function UsersPage() {
   const supabase = await createClient();
   const { data: users, error } = await supabase
     .from('users')
-    .select('id, email, display_name, role, is_active, created_at, deleted_at')
+    .select('id, email, display_name, role, is_active, created_at')
+    .is('deleted_at', null)
     .order('created_at', { ascending: false });
 
   return (

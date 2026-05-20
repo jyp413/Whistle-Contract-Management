@@ -14,7 +14,6 @@ type Row = {
   role: 'master' | 'accounting' | 'viewer';
   is_active: boolean;
   created_at: string;
-  deleted_at: string | null;
 };
 
 export default function UsersTable({
@@ -114,7 +113,6 @@ function UserRow({
   const [draftActive, setDraftActive] = useState(user.is_active);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const isDeleted = !!user.deleted_at;
   const dirty = draftRole !== user.role || draftActive !== user.is_active;
 
   function reset() {
@@ -165,19 +163,12 @@ function UserRow({
   }
 
   return (
-    <tr className={`border-t border-slate-100 ${isDeleted ? 'bg-slate-50' : ''}`}>
+    <tr className="border-t border-slate-100">
       <td className="px-4 py-2 align-top">
-        <span className={isDeleted ? 'text-slate-400 line-through' : 'text-slate-900'}>
-          {user.email}
-        </span>
+        <span className="text-slate-900">{user.email}</span>
         {isMe && (
           <span className="ml-2 text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded">
             본인
-          </span>
-        )}
-        {isDeleted && (
-          <span className="ml-2 text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded">
-            탈퇴
           </span>
         )}
         {err && <p className="text-[11px] text-red-600 mt-1">{err}</p>}
@@ -186,83 +177,69 @@ function UserRow({
         {user.display_name}
       </td>
       <td className="px-4 py-2 align-top">
-        {isDeleted ? (
-          <span className="text-xs text-slate-400">{ROLE_LABEL[user.role]}</span>
-        ) : (
-          <select
-            value={draftRole}
-            onChange={(e) => setDraftRole(e.target.value as Row['role'])}
-            disabled={pending}
-            className="text-xs border border-slate-300 rounded px-2 py-1 bg-white"
-          >
-            <option value="master">{ROLE_LABEL.master}</option>
-            <option value="accounting">{ROLE_LABEL.accounting}</option>
-            <option value="viewer">{ROLE_LABEL.viewer}</option>
-          </select>
-        )}
+        <select
+          value={draftRole}
+          onChange={(e) => setDraftRole(e.target.value as Row['role'])}
+          disabled={pending}
+          className="text-xs border border-slate-300 rounded px-2 py-1 bg-white"
+        >
+          <option value="master">{ROLE_LABEL.master}</option>
+          <option value="accounting">{ROLE_LABEL.accounting}</option>
+          <option value="viewer">{ROLE_LABEL.viewer}</option>
+        </select>
       </td>
       <td className="px-4 py-2 align-top">
-        {isDeleted ? (
-          <span className="text-xs text-slate-400">비활성</span>
-        ) : (
-          <select
-            value={draftActive ? 'active' : 'inactive'}
-            onChange={(e) => setDraftActive(e.target.value === 'active')}
-            disabled={pending || isMe}
-            className={`text-xs border rounded px-2 py-1 ${
-              draftActive
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                : 'bg-slate-50 text-slate-600 border-slate-300'
-            } disabled:opacity-50`}
-          >
-            <option value="active">활성</option>
-            <option value="inactive">비활성</option>
-          </select>
-        )}
+        <select
+          value={draftActive ? 'active' : 'inactive'}
+          onChange={(e) => setDraftActive(e.target.value === 'active')}
+          disabled={pending || isMe}
+          className={`text-xs border rounded px-2 py-1 ${
+            draftActive
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : 'bg-slate-50 text-slate-600 border-slate-300'
+          } disabled:opacity-50`}
+        >
+          <option value="active">활성</option>
+          <option value="inactive">비활성</option>
+        </select>
       </td>
       <td className="px-4 py-2 text-slate-600 text-xs align-top">
         {fmtDateTime(user.created_at)}
       </td>
       <td className="px-4 py-2 align-top">
-        {isDeleted ? (
-          <div className="flex justify-end">
-            <span className="text-xs text-slate-400">탈퇴 처리됨</span>
-          </div>
-        ) : (
-          <div className="flex justify-end gap-1">
-            {dirty && !pending && (
-              <button
-                type="button"
-                onClick={reset}
-                className="text-xs text-slate-500 hover:text-slate-900 px-2 py-1"
-              >
-                취소
-              </button>
-            )}
+        <div className="flex justify-end gap-1">
+          {dirty && !pending && (
             <button
               type="button"
-              onClick={save}
-              disabled={!dirty || pending}
-              className={`text-xs font-medium px-3 py-1 rounded ${
-                dirty
-                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-              } disabled:opacity-60`}
+              onClick={reset}
+              className="text-xs text-slate-500 hover:text-slate-900 px-2 py-1"
             >
-              {pending ? '저장 중…' : '저장'}
+              취소
             </button>
-            {!isMe && (
-              <button
-                type="button"
-                onClick={() => setConfirmDelete(true)}
-                disabled={pending}
-                className="text-xs font-medium px-3 py-1 rounded border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-60"
-              >
-                삭제
-              </button>
-            )}
-          </div>
-        )}
+          )}
+          <button
+            type="button"
+            onClick={save}
+            disabled={!dirty || pending}
+            className={`text-xs font-medium px-3 py-1 rounded ${
+              dirty
+                ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+            } disabled:opacity-60`}
+          >
+            {pending ? '저장 중…' : '저장'}
+          </button>
+          {!isMe && (
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              disabled={pending}
+              className="text-xs font-medium px-3 py-1 rounded border border-rose-300 text-rose-700 hover:bg-rose-50 disabled:opacity-60"
+            >
+              삭제
+            </button>
+          )}
+        </div>
         {confirmDelete && (
           <Modal
             title="사용자 삭제"
