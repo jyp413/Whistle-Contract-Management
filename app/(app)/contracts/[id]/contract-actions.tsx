@@ -19,6 +19,7 @@ import {
   formatAutoRenewalPeriod,
 } from '@/lib/utils';
 import Modal from '@/app/components/modal';
+import DateInput from '@/app/components/date-input';
 
 type Status = Database['public']['Enums']['contract_status'];
 
@@ -361,12 +362,10 @@ function ExtendModal({
 
       <div className="space-y-3">
         <Field label="새 만료일 *">
-          <input
-            type="date"
+          <DateInput
             value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
+            onChange={setNewDate}
             min={currentExpiry ?? undefined}
-            className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
           />
         </Field>
         <Field label="연장 사유 (권장)">

@@ -8,6 +8,7 @@ import { PARTY_LABEL, TYPE_LABEL, STATUS_LABEL } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
 import Modal from '@/app/components/modal';
 import AmountKrwInput from '@/app/components/amount-krw-input';
+import DateInput from '@/app/components/date-input';
 
 type Party = Database['public']['Enums']['contracting_party'];
 type Ctype = Database['public']['Enums']['contract_type'];
@@ -71,8 +72,12 @@ export default function EditMetaModal({
 
   const today = new Date().toISOString().slice(0, 10);
   const isSupplement = contractType !== 'parking_enforcement';
+  const isMou = contractType === 'mou';
+  // mou는 연장 개념 없음 (invariant #9) — autoRenewal 무관, 만료 과거면 무조건 blocking
   const expiryIsPast = !!expiryDate && expiryDate < today;
-  const expiryPastBlocking = expiryIsPast && !autoRenewal;
+  const expiryPastBlocking = isMou
+    ? expiryIsPast
+    : expiryIsPast && !autoRenewal;
   const isMain = !contract.master_contract_id;
   // 메인의 일자/자동연장 필드가 바뀌었는지 — 부속 stale 경고 트리거
   const dateChanged =
@@ -138,15 +143,16 @@ export default function EditMetaModal({
         signed_date: signedDate || null,
         effective_date: effectiveDate || null,
         expiry_date: expiryDate || null,
-        extended_expiry_date: extendedExpiry || null,
+        // mou는 연장 개념 없음 (invariant #9) — null 강제
+        extended_expiry_date: isMou ? null : (extendedExpiry || null),
         memo: memo || null,
         contract_type: contractType,
         contracting_party: party,
         master_contract_id: isSupplement ? masterId : null,
-        auto_renewal: autoRenewal,
-        auto_renewal_period_months: periodMonths,
-        auto_renewal_end_date: autoRenewal ? (autoRenewalEndDate || null) : null,
-        amount_krw: contractType === 'mou' ? amountKrw : null,
+        auto_renewal: isMou ? false : autoRenewal,
+        auto_renewal_period_months: isMou ? null : periodMonths,
+        auto_renewal_end_date: isMou ? null : (autoRenewal ? (autoRenewalEndDate || null) : null),
+        amount_krw: isMou ? amountKrw : null,
       });
       if (result.error) {
         setError(result.error);
@@ -211,61 +217,67 @@ export default function EditMetaModal({
             <DateField label="계약만료일" value={expiryDate} onChange={setExpiryDate} />
           </div>
 
-          <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-3">
-            <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={autoRenewal}
-                onChange={(e) => setAutoRenewal(e.target.checked)}
-                className="rounded border-slate-300"
-              />
-              자동연장 조항이 있는 계약
-            </label>
-            {autoRenewal && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6">
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    자동연장 주기 (개월) *
-                  </label>
+          {/* 자동연장 / 연장 후 만료일 — mou 는 연장 개념 없음 (invariant #9) */}
+          {!isMou && (
+            <>
+              <div className="rounded border border-slate-200 bg-slate-50 p-3 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-medium text-slate-800 cursor-pointer">
                   <input
-                    type="number"
-                    min={1}
-                    value={autoRenewalMonths}
-                    onChange={(e) => setAutoRenewalMonths(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                    type="checkbox"
+                    checked={autoRenewal}
+                    onChange={(e) => setAutoRenewal(e.target.checked)}
+                    className="rounded border-slate-300"
                   />
-                  <p className="text-[11px] text-slate-500 mt-1">12 = 1년, 24 = 2년</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-700 mb-1">
-                    자동연장 종료일 <span className="text-slate-400 font-normal">(선택)</span>
-                  </label>
-                  <input
-                    type="date"
-                    value={autoRenewalEndDate}
-                    onChange={(e) => setAutoRenewalEndDate(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
-                  />
-                  <p className="text-[11px] text-slate-500 mt-1">비우면 무기한</p>
-                </div>
+                  자동연장 조항이 있는 계약
+                </label>
+                {autoRenewal && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-6">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        자동연장 주기 (개월) *
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        value={autoRenewalMonths}
+                        onChange={(e) => setAutoRenewalMonths(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1">12 = 1년, 24 = 2년</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        자동연장 종료일 <span className="text-slate-400 font-normal">(선택)</span>
+                      </label>
+                      <DateInput value={autoRenewalEndDate} onChange={setAutoRenewalEndDate} />
+                      <p className="text-[11px] text-slate-500 mt-1">비우면 무기한</p>
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
 
-          {expiryPastBlocking && (
-            <div className="rounded border border-amber-300 bg-amber-50 p-3 space-y-2">
-              <p className="text-xs text-amber-800">⚠️ 입력한 계약만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.</p>
-              <DateField label="연장 후 만료일 *" value={extendedExpiry} onChange={setExtendedExpiry} min={today} />
-            </div>
+              {expiryPastBlocking && (
+                <div className="rounded border border-amber-300 bg-amber-50 p-3 space-y-2">
+                  <p className="text-xs text-amber-800">⚠️ 입력한 계약만료일이 이미 지났습니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.</p>
+                  <DateField label="연장 후 만료일 *" value={extendedExpiry} onChange={setExtendedExpiry} min={today} />
+                </div>
+              )}
+
+              {!expiryPastBlocking && (
+                <div>
+                  <DateField label="연장 후 만료일 (선택)" value={extendedExpiry} onChange={setExtendedExpiry} />
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    ⓘ 일반 연장은 상세 화면의 <b>[기간 연장]</b> 버튼을 사용하세요 (연장 이력이 함께 기록됩니다). 이 필드는 잘못 입력된 값을 정정할 때만 사용합니다.
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
-          {!expiryPastBlocking && (
-            <div>
-              <DateField label="연장 후 만료일 (선택)" value={extendedExpiry} onChange={setExtendedExpiry} />
-              <p className="text-[11px] text-slate-500 mt-1">
-                ⓘ 일반 연장은 상세 화면의 <b>[기간 연장]</b> 버튼을 사용하세요 (연장 이력이 함께 기록됩니다). 이 필드는 잘못 입력된 값을 정정할 때만 사용합니다.
-              </p>
-            </div>
+          {isMou && expiryPastBlocking && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+              ⚠ 유지보수 계약의 만료일이 이미 지났습니다. 유지보수는 연장 개념이 없으므로 새 계약은 <b>[갱신 착수]</b> 로 등록하세요.
+            </p>
           )}
 
           {contractType === 'mou' && (
@@ -318,13 +330,7 @@ function DateField({ label, value, onChange, min }: { label: string; value: stri
   return (
     <div>
       <label className="block text-xs font-medium text-slate-700 mb-1">{label}</label>
-      <input
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        min={min}
-        className="w-full px-3 py-2 border border-slate-300 rounded text-sm tabular-nums"
-      />
+      <DateInput value={value} onChange={onChange} min={min} />
     </div>
   );
 }

@@ -189,17 +189,15 @@ export async function createContractAction(input: unknown): Promise<
 const SUPPLEMENT_TYPES = ['personal_info_outsourcing', 'mou', 'other'] as const;
 type SupplementType = (typeof SUPPLEMENT_TYPES)[number];
 
-// mou(유지보수) 부속은 메인과 다른 일자·자동연장·계약금액을 보유 — 자체 필드 동반.
+// mou(유지보수) 부속은 메인과 다른 일자·계약금액을 보유 — 자체 필드 동반.
+// 도메인 룰: mou는 연장 개념 없음 (invariant #9) — extended_expiry_date / auto_renewal*
+// 필드 자체가 스키마에 없음. INSERT 시 null/false 강제.
 // personal_info_outsourcing / other 부속은 메인 일자를 그대로 상속 — type 만 보냄.
 const MouSupplementSchema = z.object({
   type: z.literal('mou'),
   signed_date: z.string().nullable(),
   effective_date: z.string().nullable(),
   expiry_date: z.string().nullable(),
-  extended_expiry_date: z.string().nullable(),
-  auto_renewal: z.boolean(),
-  auto_renewal_period_months: z.number().int().positive().nullable(),
-  auto_renewal_end_date: z.string().nullable(),
   amount_krw: z.number().int().nonnegative().nullable(),
 });
 const PlainSupplementSchema = z.object({
@@ -444,7 +442,7 @@ export async function createContractBatch(input: unknown): Promise<
     const isMou = sup.type === 'mou';
     const mouSup = isMou ? (sup as MouSupplementInput) : null;
 
-    // mou 부속은 자체 일자 가드 — 메인 가드와 동일 로직
+    // mou 부속 자체 일자 가드 — 연장 개념 없음 (invariant #9)
     if (mouSup) {
       if (
         mouSup.expiry_date &&
@@ -453,38 +451,11 @@ export async function createContractBatch(input: unknown): Promise<
       ) {
         return { error: '유지보수: 계약만료일은 시작일 이후여야 합니다.' };
       }
-      if (mouSup.auto_renewal) {
-        if (!mouSup.auto_renewal_period_months || mouSup.auto_renewal_period_months < 1) {
-          return { error: '유지보수: 자동연장 주기(개월)를 1 이상으로 입력하세요.' };
-        }
-        if (
-          mouSup.auto_renewal_end_date &&
-          mouSup.expiry_date &&
-          mouSup.auto_renewal_end_date < mouSup.expiry_date
-        ) {
-          return { error: '유지보수: 자동연장 종료일은 계약만료일 이후여야 합니다.' };
-        }
-      }
-      if (mouSup.expiry_date && mouSup.expiry_date < today && !mouSup.auto_renewal) {
-        if (!mouSup.extended_expiry_date) {
-          return {
-            error:
-              '유지보수: 만료일이 이미 지난 계약입니다. 연장 후 만료일을 함께 입력하거나 자동연장을 설정하세요.',
-          };
-        }
-        if (mouSup.extended_expiry_date <= mouSup.expiry_date) {
-          return { error: '유지보수: 연장 후 만료일은 기존 만료일 이후여야 합니다.' };
-        }
-        if (mouSup.extended_expiry_date < today) {
-          return { error: '유지보수: 연장 후 만료일도 이미 지났습니다.' };
-        }
-      }
-      if (
-        mouSup.extended_expiry_date &&
-        mouSup.expiry_date &&
-        mouSup.extended_expiry_date <= mouSup.expiry_date
-      ) {
-        return { error: '유지보수: 연장 후 만료일은 기존 만료일 이후여야 합니다.' };
+      if (mouSup.expiry_date && mouSup.expiry_date < today) {
+        return {
+          error:
+            '유지보수: 만료일이 이미 지난 계약입니다. 연장 개념이 없으므로 갱신 신규 등록을 사용하세요.',
+        };
       }
     }
 
@@ -493,12 +464,11 @@ export async function createContractBatch(input: unknown): Promise<
           signed_date: mouSup.signed_date,
           effective_date: mouSup.effective_date,
           expiry_date: mouSup.expiry_date,
-          extended_expiry_date: mouSup.extended_expiry_date,
-          auto_renewal: mouSup.auto_renewal,
-          auto_renewal_period_months: mouSup.auto_renewal
-            ? mouSup.auto_renewal_period_months
-            : null,
-          auto_renewal_end_date: mouSup.auto_renewal ? mouSup.auto_renewal_end_date : null,
+          // mou는 연장 개념 없음 — null/false 강제
+          extended_expiry_date: null,
+          auto_renewal: false,
+          auto_renewal_period_months: null,
+          auto_renewal_end_date: null,
         }
       : datesSource;
     const supAmount = mouSup ? mouSup.amount_krw : null;

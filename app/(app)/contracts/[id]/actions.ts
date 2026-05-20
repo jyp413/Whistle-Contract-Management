@@ -643,6 +643,21 @@ export async function updateContractMeta(input: {
   // 주체: mou는 도메인상 항상 monoplatform — DB CHECK도 강제. 폼이 imcity 보내도 덮어쓰기.
   const finalParty: 'monoplatform' | 'imcity' =
     input.contract_type === 'mou' ? 'monoplatform' : input.contracting_party;
+  // mou는 연장 개념 없음 (invariant #9) — extended_expiry_date / auto_renewal* 모두 null/false 강제.
+  // type 변경으로 mou에서 빠져나갈 때는 원래 값 그대로.
+  const isMouUpdate = input.contract_type === 'mou';
+  const finalExtendedExpiry = isMouUpdate ? null : input.extended_expiry_date;
+  const finalAutoRenewal = isMouUpdate ? false : input.auto_renewal;
+  const finalAutoRenewalPeriod = isMouUpdate
+    ? null
+    : input.auto_renewal
+      ? input.auto_renewal_period_months
+      : null;
+  const finalAutoRenewalEnd = isMouUpdate
+    ? null
+    : input.auto_renewal
+      ? input.auto_renewal_end_date
+      : null;
 
   const { error: e2, count } = await supabase
     .from('contracts')
@@ -651,14 +666,14 @@ export async function updateContractMeta(input: {
         signed_date: input.signed_date,
         effective_date: input.effective_date,
         expiry_date: input.expiry_date,
-        extended_expiry_date: input.extended_expiry_date,
+        extended_expiry_date: finalExtendedExpiry,
         memo: input.memo,
         contract_type: input.contract_type,
         contracting_party: finalParty,
         master_contract_id: input.master_contract_id,
-        auto_renewal: input.auto_renewal,
-        auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
-        auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
+        auto_renewal: finalAutoRenewal,
+        auto_renewal_period_months: finalAutoRenewalPeriod,
+        auto_renewal_end_date: finalAutoRenewalEnd,
         amount_krw: finalAmountKrw,
         version: cur.version + 1,
         updated_by: me.id,
@@ -695,14 +710,14 @@ export async function updateContractMeta(input: {
       signed_date: input.signed_date,
       effective_date: input.effective_date,
       expiry_date: input.expiry_date,
-      extended_expiry_date: input.extended_expiry_date,
+      extended_expiry_date: finalExtendedExpiry,
       memo: input.memo,
       contract_type: input.contract_type,
       contracting_party: finalParty,
       master_contract_id: input.master_contract_id,
-      auto_renewal: input.auto_renewal,
-      auto_renewal_period_months: input.auto_renewal ? input.auto_renewal_period_months : null,
-      auto_renewal_end_date: input.auto_renewal ? input.auto_renewal_end_date : null,
+      auto_renewal: finalAutoRenewal,
+      auto_renewal_period_months: finalAutoRenewalPeriod,
+      auto_renewal_end_date: finalAutoRenewalEnd,
       amount_krw: finalAmountKrw,
     },
   });
