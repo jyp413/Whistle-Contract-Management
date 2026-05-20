@@ -98,15 +98,10 @@ export function RegionMap({ stats }: Props) {
     return buildViewFeatures(topo, stats, view);
   }, [topo, stats, view]);
 
-  // 본토만으로 projection 을 fit → mainland 확대. 제주/울릉은 별도 transform으로 inset 배치.
-  // 제주(시도 '39')는 nation view 에서, 울릉군(시군구 '37430')은 nation view +
-  // 경상북도 sido view 에서 inset 처리한다.
-  const isOffshore = (code: string): 'jeju' | 'ulleung' | null => {
+  // 본토만으로 projection 을 fit → mainland 확대. 제주(시도 '39')는 nation
+  // view 에서 별도 transform 으로 우하단 박스에 inset 배치한다.
+  const isOffshore = (code: string): 'jeju' | null => {
     if (code === '39' && view.level === 'nation') return 'jeju';
-    if (code === '37430') {
-      if (view.level === 'nation') return 'ulleung';
-      if (view.level === 'sido' && view.sido === '경상북도') return 'ulleung';
-    }
     return null;
   };
 
@@ -130,24 +125,13 @@ export function RegionMap({ stats }: Props) {
 
   const path = useMemo(() => (projection ? geoPath(projection) : null), [projection]);
 
-  // 제주·울릉 inset 목표 위치 — 본토 viewBox 안의 빈 모서리.
-  // 제주는 우하단, 울릉은 우상단. transform·라벨·테두리 박스가 모두 공유한다.
-  const offshoreTarget = (kind: 'jeju' | 'ulleung') => {
-    if (kind === 'jeju') {
-      // 제주 — 우하단 모서리 박스. 본토와 겹치지 않도록 깊숙이 내림.
-      return { x: size.w * 0.86, y: size.h * 0.9, scale: 1.0 };
-    }
-    // 울릉 — 박스 없이 경북 북동쪽 해상에 작은 섬으로. 실제 위치보다 내륙에
-    // 가깝게 당겨 본토에서 너무 떨어져 보이지 않게 한다.
-    const sidoView = view.level === 'sido';
-    return {
-      x: size.w * 0.9,
-      y: size.h * (sidoView ? 0.34 : 0.3),
-      scale: sidoView ? 1.5 : 2.0,
-    };
+  // 제주 inset 목표 위치 — 우하단 모서리 박스. 본토와 겹치지 않도록 깊숙이 내림.
+  // transform·라벨·테두리 박스가 모두 공유한다.
+  const offshoreTarget = (_kind: 'jeju') => {
+    return { x: size.w * 0.86, y: size.h * 0.9, scale: 1.0 };
   };
 
-  const offshoreTransform = (kind: 'jeju' | 'ulleung', vf: ViewFeature): string => {
+  const offshoreTransform = (kind: 'jeju', vf: ViewFeature): string => {
     if (!path) return '';
     const c = path.centroid(vf.feature);
     if (!isFinite(c[0]) || !isFinite(c[1])) return '';
@@ -160,7 +144,7 @@ export function RegionMap({ stats }: Props) {
   // offshore 섬을 감싸는 테두리 박스 (화면좌표).
   // 한 점 p 의 화면 위치 = target + (p - centroid) * scale.
   const offshoreBox = (
-    kind: 'jeju' | 'ulleung',
+    kind: 'jeju',
     vf: ViewFeature,
   ): { x: number; y: number; w: number; h: number } | null => {
     if (!path) return null;
@@ -239,7 +223,7 @@ export function RegionMap({ stats }: Props) {
         />
         <div
           ref={containerRef}
-          className="mt-3 relative bg-slate-50 rounded-md overflow-hidden max-w-[560px]"
+          className="mt-3 relative bg-slate-50 rounded-md overflow-hidden max-w-[640px]"
         >
           {!topo && (
             <div className="aspect-[5/6] flex items-center justify-center text-sm text-slate-400">
@@ -262,8 +246,8 @@ export function RegionMap({ stats }: Props) {
               {mainlandFeatures.map(renderPolygon)}
               {offshoreFeatures.map((vf) => {
                 const kind = isOffshore(vf.feature.properties.code);
-                // 제주만 테두리 박스. 울릉은 박스 없이 해상에 띄운다.
-                if (kind !== 'jeju') return null;
+                // 제주만 테두리 박스 인셋.
+                if (!kind) return null;
                 const box = offshoreBox(kind, vf);
                 if (!box) return null;
                 return (
@@ -288,7 +272,10 @@ export function RegionMap({ stats }: Props) {
                 const bounds = path.bounds(vf.feature);
                 const w = bounds[1][0] - bounds[0][0];
                 const offshore = isOffshore(vf.feature.properties.code);
-                if (!offshore && w < 28) return null;
+                // 작은 폴리곤은 라벨 생략. 단 울릉군('37430')은 섬이라 작아도
+                // 다른 시군구처럼 지명을 표시한다.
+                const code = vf.feature.properties.code;
+                if (!offshore && w < 28 && code !== '37430') return null;
                 const noData = vf.lgs.length === 0 || vf.lgs.every((l) => l.total === 0);
                 const sum = sumParty(vf.lgs);
                 const completedTotal = sum.completed_monoplatform + sum.completed_imcity;
@@ -423,81 +410,23 @@ function buildViewFeatures(topo: Topology, stats: LgStat[], view: View): ViewFea
   }
 }
 
-// 경상북도 시도 폴리곤에서 울릉군(37430)을 분리.
-// 경북 본토는 울릉을 뺀 시군구를 merge 로 재구성하고, 울릉은 별도 피처로 반환.
-function splitGyeongbukUlleung(topo: Topology): {
-  gyeongbuk: GeoFeature | null;
-  ulleung: GeoFeature | null;
-} {
-  const sigungu = topo.objects.sigungu as GeometryCollection<GeoProps>;
-  const gb = sigungu.geometries.filter((g) =>
-    (g.properties as GeoProps | undefined)?.code?.startsWith('37'),
-  );
-  const ulleungGeom = gb.find((g) => (g.properties as GeoProps).code === '37430');
-  const rest = gb.filter((g) => (g.properties as GeoProps).code !== '37430');
-  if (!ulleungGeom || rest.length === 0) {
-    return { gyeongbuk: null, ulleung: null };
-  }
-  const merged = merge(
-    topo,
-    rest as Array<TopoPolygon<GeoProps> | TopoMultiPolygon<GeoProps>>,
-  ) as MultiPolygon;
-  return {
-    gyeongbuk: {
-      type: 'Feature',
-      geometry: merged,
-      properties: { name: '경상북도', code: '37' },
-    },
-    ulleung: {
-      type: 'Feature',
-      geometry: (feature(topo, ulleungGeom) as GeoFeature).geometry,
-      properties: { name: '울릉군', code: '37430' },
-    },
-  };
-}
-
 function buildNation(topo: Topology, stats: LgStat[]): ViewFeature[] {
   const fc = feature(
     topo,
     topo.objects.sido as GeometryCollection<GeoProps>,
   ) as FeatureCollection<Polygon | MultiPolygon, GeoProps>;
-  const out: ViewFeature[] = [];
-  for (const f of fc.features) {
+  return fc.features.map((f) => {
     const sidoName = SIDO_BY_GEO_CODE[f.properties.code] ?? f.properties.name;
     const lgs = lgsBySidoCode(stats, f.properties.code);
     const drillTo: View = { level: 'sido', sido: sidoName };
-
-    if (f.properties.code === '37') {
-      // 경상북도: 울릉군을 본토 폴리곤에서 분리해 별도 inset 피처로.
-      const split = splitGyeongbukUlleung(topo);
-      out.push({
-        key: 'sido:37',
-        label: shortenSidoLabel(sidoName),
-        feature: split.gyeongbuk ?? f,
-        lgs,
-        drillTo,
-      });
-      if (split.ulleung) {
-        out.push({
-          key: 'offshore:ulleung',
-          label: '울릉',
-          feature: split.ulleung,
-          lgs: lgsByGeoCode(stats, '37430'),
-          drillTo, // 클릭 시 경상북도로 드릴다운
-        });
-      }
-      continue;
-    }
-
-    out.push({
+    return {
       key: `sido:${f.properties.code}`,
       label: shortenSidoLabel(sidoName),
       feature: f,
       lgs,
       drillTo,
-    });
-  }
-  return out;
+    };
+  });
 }
 
 function buildSido(topo: Topology, stats: LgStat[], sidoName: string): ViewFeature[] {
