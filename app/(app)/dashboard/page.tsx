@@ -5,6 +5,7 @@ import {
   fmtDate,
   daysUntil,
   effectiveExpiry,
+  formatAutoRenewalPeriod,
   STATUS_LABEL,
 } from '@/lib/utils';
 import { RegionMapCard } from '@/components/map/region-map-card';
@@ -60,6 +61,14 @@ export default async function DashboardPage({
     const d = daysUntil(effectiveExpiry(c));
     return d !== null && d >= 0 && d <= 90;
   });
+
+  // 자동연장 계약 중 종료일 cap 미도달 = 실제 종료 위험 없음 (다음 주기로 갱신)
+  const isSafeRenewal = (c: (typeof expiringSoon)[number]): boolean =>
+    c.auto_renewal &&
+    !(
+      c.auto_renewal_end_date != null &&
+      effectiveExpiry(c) === c.auto_renewal_end_date
+    );
 
   return (
     <div className="space-y-6">
@@ -130,6 +139,7 @@ export default async function DashboardPage({
             <tbody>
               {expiringSoon.slice(0, 10).map((c) => {
                 const d = daysUntil(effectiveExpiry(c));
+                const safe = isSafeRenewal(c);
                 return (
                   <tr
                     key={c.id}
@@ -144,18 +154,40 @@ export default async function DashboardPage({
                       </Link>
                     </td>
                     <td className="px-5 py-2 text-slate-700 tabular-nums">
-                      {fmtDate(effectiveExpiry(c))}
+                      <div className="flex items-center gap-1.5">
+                        <span>{fmtDate(effectiveExpiry(c))}</span>
+                        {c.auto_renewal && (
+                          <span
+                            className="inline-flex items-center text-[10px] font-medium px-1.5 py-0.5 rounded ring-1 ring-inset ring-orange-200 bg-orange-50 text-orange-700"
+                            title={
+                              c.auto_renewal_end_date
+                                ? `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)} (최대 ${c.auto_renewal_end_date})`
+                                : `자동연장 ${formatAutoRenewalPeriod(c.auto_renewal_period_months)}`
+                            }
+                          >
+                            🔄 {formatAutoRenewalPeriod(c.auto_renewal_period_months)}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td
                       className={`px-5 py-2 text-right tabular-nums ${
-                        d !== null && d <= 30
-                          ? 'text-red-600 font-semibold'
-                          : d !== null && d <= 60
-                            ? 'text-amber-600'
-                            : 'text-slate-700'
+                        safe
+                          ? 'text-slate-400'
+                          : d !== null && d <= 30
+                            ? 'text-red-600 font-semibold'
+                            : d !== null && d <= 60
+                              ? 'text-amber-600'
+                              : 'text-slate-700'
                       }`}
+                      title={
+                        safe
+                          ? '자동연장 계약 — 이 시점에 다음 주기로 갱신됩니다 (종료 아님)'
+                          : '자동연장 없음 — 만료 전 갱신 착수 필요'
+                      }
                     >
                       {d !== null ? `D-${d}` : '-'}
+                      {safe && <span className="ml-1 text-[10px]">자동갱신</span>}
                     </td>
                   </tr>
                 );
