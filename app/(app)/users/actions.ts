@@ -90,3 +90,58 @@ export async function setUserActive(input: {
   revalidatePath('/users');
   return { ok: true };
 }
+
+/**
+ * 사용자 삭제 (soft delete). deleted_at 을 찍고 비활성화한다.
+ * - 본인 계정은 삭제 불가 (마스터가 최소 1명 남도록 보장)
+ * - 이미 탈퇴 처리된 사용자는 거부
+ * - requireUser() 가 deleted_at 사용자를 로그인에서 차단하므로 재로그인 불가
+ */
+export async function deleteUser(input: {
+  userId: string;
+}): Promise<{ error?: string; ok?: true }> {
+  const me = await requireMaster();
+  if (input.userId === me.id) {
+    return { error: '본인 계정은 삭제할 수 없습니다.' };
+  }
+
+  const supabase = await createClient();
+
+  const { data: target } = await supabase
+    .from('users')
+    .select('email, role, is_active, deleted_at')
+    .eq('id', input.userId)
+    .single();
+  if (!target) return { error: '사용자를 찾을 수 없습니다.' };
+  if (target.deleted_at) {
+    return { error: '이미 탈퇴 처리된 사용자입니다.' };
+  }
+
+  // soft-delete 형 UPDATE 는 RETURNING 이 RLS 로 필터될 수 있어 count 로 확인 (CLAUDE.md)
+  const { error, count } = await supabase
+    .from('users')
+    .update(
+      { deleted_at: new Date().toISOString(), is_active: false },
+      { count: 'exact' },
+    )
+    .eq('id', input.userId)
+    .is('deleted_at', null);
+
+  if (error) return { error: error.message };
+  if (!count) {
+    return { error: '이미 처리되었거나 사용자를 찾을 수 없습니다.' };
+  }
+
+  const { error: logErr } = await supabase.from('activity_logs').insert({
+    actor_id: me.id,
+    event_type: 'permission_change',
+    target_type: 'user',
+    target_id: input.userId,
+    before_value: { email: target.email, role: target.role, deleted: false },
+    after_value: { email: target.email, role: target.role, deleted: true },
+  });
+  if (logErr) console.error('[deleteUser] activity_logs insert failed:', logErr);
+
+  revalidatePath('/users');
+  return { ok: true };
+}

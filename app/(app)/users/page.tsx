@@ -21,11 +21,19 @@ export default async function UsersPage() {
       >
         <span aria-hidden>←</span> 대시보드
       </Link>
-      <div>
-        <h1 className="text-xl font-bold text-slate-900">사용자 관리</h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Master 권한 전용. 역할 변경 / 활성화 / 비활성화 가능.
-        </p>
+      <div className="flex items-start justify-between flex-wrap gap-2">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900">사용자 관리</h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Master 권한 전용. 역할 변경 / 활성화 / 삭제 가능.
+          </p>
+        </div>
+        <a
+          href="/api/export/users.xlsx"
+          className="text-sm font-medium px-3 py-2 border border-slate-300 bg-white hover:bg-slate-50 rounded"
+        >
+          📥 엑셀 내보내기
+        </a>
       </div>
 
       {error && (
