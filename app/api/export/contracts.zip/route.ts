@@ -2,8 +2,14 @@ import { NextResponse, type NextRequest } from 'next/server';
 import JSZip from 'jszip';
 import { createClient } from '@/lib/supabase/server';
 import { requireWriter } from '@/lib/auth';
-import { fmtDate } from '@/lib/utils';
+import { fmtDate, monthStart, monthEndExclusive } from '@/lib/utils';
 import type { Database } from '@/lib/types/database';
+
+const YM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const ym = (v: string | null) => {
+  const t = (v ?? '').trim();
+  return YM_RE.test(t) ? t : '';
+};
 
 type Status = Database['public']['Enums']['contract_status'];
 type Ctype = Database['public']['Enums']['contract_type'];
@@ -26,6 +32,12 @@ export async function GET(request: NextRequest) {
   const type = url.searchParams.get('type') as Ctype | null;
   const party = url.searchParams.get('party') as Party | null;
   const q = url.searchParams.get('q')?.trim() ?? '';
+  const signedFrom = ym(url.searchParams.get('signed_from'));
+  const signedTo = ym(url.searchParams.get('signed_to'));
+  const effectiveFrom = ym(url.searchParams.get('effective_from'));
+  const effectiveTo = ym(url.searchParams.get('effective_to'));
+  const expiryFrom = ym(url.searchParams.get('expiry_from'));
+  const expiryTo = ym(url.searchParams.get('expiry_to'));
 
   // 1) 대상 계약 조회
   let cQuery = supabase
@@ -40,6 +52,12 @@ export async function GET(request: NextRequest) {
   }
   if (type) cQuery = cQuery.eq('contract_type', type);
   if (party) cQuery = cQuery.eq('contracting_party', party);
+  if (signedFrom) cQuery = cQuery.gte('signed_date', monthStart(signedFrom));
+  if (signedTo) cQuery = cQuery.lt('signed_date', monthEndExclusive(signedTo));
+  if (effectiveFrom) cQuery = cQuery.gte('effective_date', monthStart(effectiveFrom));
+  if (effectiveTo) cQuery = cQuery.lt('effective_date', monthEndExclusive(effectiveTo));
+  if (expiryFrom) cQuery = cQuery.gte('expiry_date', monthStart(expiryFrom));
+  if (expiryTo) cQuery = cQuery.lt('expiry_date', monthEndExclusive(expiryTo));
 
   const { data: contractsRaw, error: cErr } = await cQuery;
   const contracts = q
@@ -112,6 +130,15 @@ export async function GET(request: NextRequest) {
     type ? `유형 필터: ${type}` : null,
     party ? `주체 필터: ${party}` : null,
     q ? `검색어: ${q}` : null,
+    signedFrom || signedTo
+      ? `계약체결일: ${signedFrom || '~'} ~ ${signedTo || '~'}`
+      : null,
+    effectiveFrom || effectiveTo
+      ? `계약시작일: ${effectiveFrom || '~'} ~ ${effectiveTo || '~'}`
+      : null,
+    expiryFrom || expiryTo
+      ? `계약만료일: ${expiryFrom || '~'} ~ ${expiryTo || '~'}`
+      : null,
     `포함 파일 수: ${files.length}${truncated ? ` (총 ${filesRaw.length}건 중 ${MAX_FILES_PER_ZIP}건만 포함 — cap 초과)` : ''}`,
     `대상 계약 수: ${contracts.length}`,
     truncated ? `※ ${MAX_FILES_PER_ZIP}건을 초과하면 잘립니다. 필터를 좁혀 다시 시도하세요.` : null,
@@ -128,6 +155,12 @@ export async function GET(request: NextRequest) {
       type,
       party,
       q,
+      signed_from: signedFrom,
+      signed_to: signedTo,
+      effective_from: effectiveFrom,
+      effective_to: effectiveTo,
+      expiry_from: expiryFrom,
+      expiry_to: expiryTo,
       file_count: files.length,
       contract_count: contracts.length,
       truncated,

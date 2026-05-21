@@ -110,6 +110,21 @@ export function addMonths(dateStr: string, months: number): string {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
 }
 
+/** 'YYYY-MM' → 그 달 1일 'YYYY-MM-01' (날짜 범위 필터의 하한, .gte 용). */
+export function monthStart(ym: string): string {
+  return `${ym}-01`;
+}
+
+/**
+ * 'YYYY-MM' → 다음 달 1일 'YYYY-MM-01' (날짜 범위 필터의 상한, .lt 용).
+ * 다음 달 1일 미만으로 거르면 그 달 말일까지 포함 — 30/31일·윤년 무관.
+ */
+export function monthEndExclusive(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return m >= 12 ? `${y + 1}-01-01` : `${y}-${pad(m + 1)}-01`;
+}
+
 /**
  * 자동연장 계약에서 이미 지나간 자동연장 주기들을 계산하여 반환.
  * effectiveExpiry()의 롤포워드 루프와 동일한 규칙 — DB에 저장되지 않는 계산값.

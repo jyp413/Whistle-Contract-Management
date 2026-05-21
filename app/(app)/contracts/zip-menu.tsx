@@ -12,11 +12,13 @@ export default function ZipMenu({
   type = 'all',
   party = 'all',
   q = '',
+  dateParams = {},
 }: {
   status: Status;
   type?: Ctype;
   party?: Party;
   q?: string;
+  dateParams?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -25,6 +27,9 @@ export default function ZipMenu({
     if (type !== 'all') p.type = type;
     if (party !== 'all') p.party = party;
     if (q) p.q = q;
+    for (const [k, v] of Object.entries(dateParams)) {
+      if (v) p[k] = v;
+    }
     const qs = new URLSearchParams(p).toString();
     return qs ? `&${qs}` : '';
   };

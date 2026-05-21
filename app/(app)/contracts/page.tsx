@@ -3,9 +3,12 @@ import { createClient } from '@/lib/supabase/server';
 import { requireUser } from '@/lib/auth';
 import ZipMenu from './zip-menu';
 import ContractsTable, { type SortKey } from './contracts-table';
+import ContractsDateFilter from './contracts-date-filter';
 import {
   canWrite,
   effectiveExpiry,
+  monthStart,
+  monthEndExclusive,
   STATUS_LABEL,
   TYPE_LABEL,
   PARTY_LABEL,
@@ -69,6 +72,12 @@ export default async function ContractsListPage({
     dir?: string;
     page?: string;
     size?: string;
+    signed_from?: string;
+    signed_to?: string;
+    effective_from?: string;
+    effective_to?: string;
+    expiry_from?: string;
+    expiry_to?: string;
   }>;
 }) {
   const me = await requireUser();
@@ -87,6 +96,19 @@ export default async function ContractsListPage({
     : DEFAULT_PAGE_SIZE;
   const pageRaw = parseInt(sp.page ?? '1', 10);
   const requestedPage = Number.isFinite(pageRaw) && pageRaw > 0 ? pageRaw : 1;
+
+  // 날짜 기간 필터 — 'YYYY-MM' 형식만 통과, 불일치 시 무시
+  const YM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+  const ym = (v: string | undefined) => {
+    const t = (v ?? '').trim();
+    return YM_RE.test(t) ? t : '';
+  };
+  const signedFrom = ym(sp.signed_from);
+  const signedTo = ym(sp.signed_to);
+  const effectiveFrom = ym(sp.effective_from);
+  const effectiveTo = ym(sp.effective_to);
+  const expiryFrom = ym(sp.expiry_from);
+  const expiryTo = ym(sp.expiry_to);
 
   const supabase = await createClient();
   let query = supabase
@@ -109,6 +131,12 @@ export default async function ContractsListPage({
   if (party !== 'all') {
     query = query.eq('contracting_party', party);
   }
+  if (signedFrom) query = query.gte('signed_date', monthStart(signedFrom));
+  if (signedTo) query = query.lt('signed_date', monthEndExclusive(signedTo));
+  if (effectiveFrom) query = query.gte('effective_date', monthStart(effectiveFrom));
+  if (effectiveTo) query = query.lt('effective_date', monthEndExclusive(effectiveTo));
+  if (expiryFrom) query = query.gte('expiry_date', monthStart(expiryFrom));
+  if (expiryTo) query = query.lt('expiry_date', monthEndExclusive(expiryTo));
 
   const { data: contracts, error } = await query;
 
@@ -254,6 +282,12 @@ export default async function ContractsListPage({
     if (sort !== 'lg_name') params.sort = sort;
     if (dir !== 'asc') params.dir = dir;
     if (size !== DEFAULT_PAGE_SIZE) params.size = String(size);
+    if (signedFrom) params.signed_from = signedFrom;
+    if (signedTo) params.signed_to = signedTo;
+    if (effectiveFrom) params.effective_from = effectiveFrom;
+    if (effectiveTo) params.effective_to = effectiveTo;
+    if (expiryFrom) params.expiry_from = expiryFrom;
+    if (expiryTo) params.expiry_to = expiryTo;
     for (const [k, v] of Object.entries(overrides)) {
       if (v === 'all' || !v) delete params[k];
       else params[k] = v;
@@ -327,7 +361,20 @@ export default async function ContractsListPage({
               >
                 엑셀 내보내기
               </a>
-              <ZipMenu status={status} type={type} party={party} q={q} />
+              <ZipMenu
+                status={status}
+                type={type}
+                party={party}
+                q={q}
+                dateParams={{
+                  signed_from: signedFrom,
+                  signed_to: signedTo,
+                  effective_from: effectiveFrom,
+                  effective_to: effectiveTo,
+                  expiry_from: expiryFrom,
+                  expiry_to: expiryTo,
+                }}
+              />
               <Link
                 href="/contracts/new"
                 className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-4 py-2 rounded"
@@ -409,6 +456,8 @@ export default async function ContractsListPage({
           </button>
         </div>
       </form>
+
+      <ContractsDateFilter />
 
       {error && (
         <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded px-3 py-2">

@@ -10,7 +10,15 @@ import {
   fmtDateTime,
   effectiveExpiry,
   formatAutoRenewalPeriod,
+  monthStart,
+  monthEndExclusive,
 } from '@/lib/utils';
+
+const YM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const ym = (v: string | null) => {
+  const t = (v ?? '').trim();
+  return YM_RE.test(t) ? t : '';
+};
 import type { Database } from '@/lib/types/database';
 
 type Status = Database['public']['Enums']['contract_status'];
@@ -26,6 +34,12 @@ export async function GET(request: NextRequest) {
   const type = url.searchParams.get('type') as Ctype | 'all' | null;
   const party = url.searchParams.get('party') as Party | 'all' | null;
   const q = url.searchParams.get('q')?.trim() ?? '';
+  const signedFrom = ym(url.searchParams.get('signed_from'));
+  const signedTo = ym(url.searchParams.get('signed_to'));
+  const effectiveFrom = ym(url.searchParams.get('effective_from'));
+  const effectiveTo = ym(url.searchParams.get('effective_to'));
+  const expiryFrom = ym(url.searchParams.get('expiry_from'));
+  const expiryTo = ym(url.searchParams.get('expiry_to'));
 
   let query = supabase
     .from('contracts')
@@ -44,6 +58,12 @@ export async function GET(request: NextRequest) {
   if (party && party !== 'all') {
     query = query.eq('contracting_party', party);
   }
+  if (signedFrom) query = query.gte('signed_date', monthStart(signedFrom));
+  if (signedTo) query = query.lt('signed_date', monthEndExclusive(signedTo));
+  if (effectiveFrom) query = query.gte('effective_date', monthStart(effectiveFrom));
+  if (effectiveTo) query = query.lt('effective_date', monthEndExclusive(effectiveTo));
+  if (expiryFrom) query = query.gte('expiry_date', monthStart(expiryFrom));
+  if (expiryTo) query = query.lt('expiry_date', monthEndExclusive(expiryTo));
 
   const { data: contracts, error } = await query;
   if (error) {
@@ -121,7 +141,18 @@ export async function GET(request: NextRequest) {
     target_type: null,
     after_value: {
       type: 'excel_export',
-      filter: { status, type, party, q },
+      filter: {
+        status,
+        type,
+        party,
+        q,
+        signed_from: signedFrom,
+        signed_to: signedTo,
+        effective_from: effectiveFrom,
+        effective_to: effectiveTo,
+        expiry_from: expiryFrom,
+        expiry_to: expiryTo,
+      },
       count: rows.length,
     },
   });
