@@ -59,10 +59,18 @@ export default async function DashboardPage({
     expiring_90d: 0,
   };
 
-  const expiringSoon = (expiring ?? []).filter((c) => {
-    const d = daysUntil(effectiveExpiry(c));
-    return d !== null && d >= 0 && d <= 90;
-  });
+  // 쿼리는 원본 expiry_date 로 정렬되지만 화면 D-day 는 effectiveExpiry()(자동연장 반영)
+  // 기준이라 어긋남 — 실효 만료일 임박 순으로 다시 정렬.
+  const expiringSoon = (expiring ?? [])
+    .filter((c) => {
+      const d = daysUntil(effectiveExpiry(c));
+      return d !== null && d >= 0 && d <= 90;
+    })
+    .sort(
+      (a, b) =>
+        (daysUntil(effectiveExpiry(a)) ?? Infinity) -
+        (daysUntil(effectiveExpiry(b)) ?? Infinity),
+    );
 
   // 자동연장 계약 중 종료일 cap 미도달 = 실제 종료 위험 없음 (다음 주기로 갱신)
   const isSafeRenewal = (c: (typeof expiringSoon)[number]): boolean =>
